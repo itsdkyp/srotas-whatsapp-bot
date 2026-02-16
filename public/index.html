@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Srotas.bot — WhatsApp Bot Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <span class="logo-icon">🤖</span>
+          <span class="logo-text">Srotas.bot</span>
+        </div>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="#" class="nav-item active" data-page="sessions">
+          <span class="nav-icon">📱</span>
+          <span class="nav-label">Sessions</span>
+        </a>
+        <a href="#" class="nav-item" data-page="contacts">
+          <span class="nav-icon">👥</span>
+          <span class="nav-label">Contacts</span>
+        </a>
+        <a href="#" class="nav-item" data-page="messaging">
+          <span class="nav-icon">✉️</span>
+          <span class="nav-label">Campaigns</span>
+        </a>
+        <a href="#" class="nav-item" data-page="scheduler">
+          <span class="nav-icon">📅</span>
+          <span class="nav-label">Scheduler</span>
+        </a>
+        <a href="#" class="nav-item" data-page="quickreplies">
+          <span class="nav-icon">⚡</span>
+          <span class="nav-label">Quick Replies</span>
+        </a>
+        <a href="#" class="nav-item" data-page="settings">
+          <span class="nav-icon">⚙️</span>
+          <span class="nav-label">Settings</span>
+        </a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="status-indicator">
+          <span class="status-dot" id="socketStatus"></span>
+          <span class="status-label">Srotas.bot</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Sessions Page -->
+      <div class="page active" id="page-sessions">
+        <div class="page-header">
+          <h1>WhatsApp Sessions</h1>
+          <button class="btn btn-primary" id="addSessionBtn">
+            <span>+</span> Add Account
+          </button>
+        </div>
+        <div class="sessions-grid" id="sessionsList">
+          <!-- populated by JS -->
+        </div>
+      </div>
+
+      <!-- Contacts Page -->
+      <div class="page" id="page-contacts">
+        <div class="page-header">
+          <h1>Contacts</h1>
+          <div class="header-actions">
+            <input type="text" class="search-input" id="contactSearch" placeholder="Search contacts..." />
+            <button class="btn btn-primary" id="addContactBtn">
+              <span>+</span> Add Contact
+            </button>
+            <button class="btn btn-primary" id="uploadContactsBtn">
+              <span>📁</span> Import CSV
+            </button>
+            <button class="btn btn-primary" id="syncWAContactsBtn">
+              <span>📲</span> Sync WhatsApp
+            </button>
+          </div>
+        </div>
+        <div class="contacts-toolbar">
+          <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+            <select id="groupFilter" class="select-input">
+              <option value="">All Groups</option>
+            </select>
+            <button class="btn btn-primary btn-sm" id="createGroupBtn">+ Group</button>
+            <button class="btn btn-danger btn-sm" id="deleteGroupBtn" style="display:none;">🗑️ Delete Group</button>
+            <button class="btn btn-primary btn-sm" id="groupFromSelectedBtn" style="display:none;">📂 Group from
+              Selected</button>
+          </div>
+          <span class="contact-count" id="contactCount">0 contacts</span>
+        </div>
+        <div class="table-container">
+          <table class="data-table" id="contactsTable">
+            <thead>
+              <tr>
+                <th><input type="checkbox" id="selectAllContacts" /></th>
+                <th>Name</th>
+                <th>Phone</th>
+                <th>Company</th>
+                <th>Group</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="contactsBody"></tbody>
+          </table>
+        </div>
+        <!-- Upload Modal -->
+        <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" style="display:none" />
+      </div>
+
+      <!-- Messaging / Campaigns Page -->
+      <div class="page" id="page-messaging">
+        <div class="page-header">
+          <h1>Campaigns</h1>
+          <button class="btn btn-primary" id="newCampaignBtn">
+            <span>+</span> New Campaign
+          </button>
+        </div>
+
+        <!-- Campaign History -->
+        <div id="campaignsList"></div>
+      </div>
+
+      <!-- Quick Replies Page -->
+      <div class="page" id="page-quickreplies">
+        <div class="page-header">
+          <h1>Quick Replies</h1>
+          <button class="btn btn-primary" id="addQuickReplyBtn">
+            <span>+</span> Add Quick Reply
+          </button>
+        </div>
+        <p style="color:var(--text-secondary); margin-bottom:20px;">
+          Define keyword triggers that automatically send canned responses when a contact replies with that keyword.
+          Quick replies take priority over AI auto-reply.
+        </p>
+        <div id="quickRepliesList"></div>
+      </div>
+
+      <!-- Settings Page -->
+      <div class="page" id="page-settings">
+        <div class="page-header">
+          <h1>Settings</h1>
+        </div>
+        <div class="settings-grid">
+          <div class="card">
+            <h3>🤖 AI Provider</h3>
+            <div class="form-group">
+              <label>Provider</label>
+              <select id="settingsProvider" class="select-input">
+                <option value="gemini">Google Gemini</option>
+                <option value="openai">OpenAI</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Gemini API Key</label>
+              <input type="password" id="settingsGeminiKey" class="text-input" placeholder="Enter Gemini API key" />
+            </div>
+            <div class="form-group">
+              <label>OpenAI API Key</label>
+              <input type="password" id="settingsOpenAIKey" class="text-input" placeholder="Enter OpenAI API key" />
+            </div>
+          </div>
+          <div class="card">
+            <h3>💬 Auto-Reply</h3>
+            <div class="form-group">
+              <label>System Prompt</label>
+              <textarea id="settingsPrompt" class="textarea-input" rows="5"
+                placeholder="You are a helpful assistant..."></textarea>
+            </div>
+          </div>
+          <div class="card">
+            <h3>⏱️ Delays</h3>
+            <div class="form-row">
+              <div class="form-group half">
+                <label>Min Delay (ms)</label>
+                <input type="number" id="settingsMinDelay" class="text-input" value="3000" />
+              </div>
+              <div class="form-group half">
+                <label>Max Delay (ms)</label>
+                <input type="number" id="settingsMaxDelay" class="text-input" value="5000" />
+              </div>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-lg" id="saveSettingsBtn">💾 Save Settings</button>
+        </div>
+      </div>
+
+      <!-- Scheduler Page -->
+      <div class="page" id="page-scheduler">
+        <div class="page-header">
+          <h1>Scheduled Messages</h1>
+          <button class="btn btn-primary" id="addScheduleBtn">
+            <span>+</span> New Schedule
+          </button>
+        </div>
+        <div class="schedules-list" id="schedulesList"></div>
+      </div>
+    </main>
+  </div>
+
+  <!-- QR Modal -->
+  <div class="modal-overlay" id="qrModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Scan QR Code</h3>
+        <button class="modal-close" id="qrModalClose">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="qr-container" id="qrContainer">
+          <div class="qr-loading">
+            <div class="spinner"></div>
+            <p>Initializing session...</p>
+            <p class="qr-hint">A QR code will appear here momentarily</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import Preview Modal -->
+  <div class="modal-overlay" id="importModal">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>Import Contacts</h3>
+        <button class="modal-close" id="importModalClose">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Group Name</label>
+          <input type="text" id="importGroupName" class="text-input" placeholder="e.g. clients, leads"
+            value="default" />
+        </div>
+        <div class="import-stats" id="importStats"></div>
+        <div class="table-container table-scroll">
+          <table class="data-table" id="importPreviewTable">
+            <thead id="importPreviewHead"></thead>
+            <tbody id="importPreviewBody"></tbody>
+          </table>
+        </div>
+        <button class="btn btn-success btn-lg" id="confirmImportBtn">✅ Import Contacts</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Session Modal -->
+  <div class="modal-overlay" id="addSessionModal">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3>New WhatsApp Session</h3>
+        <button class="modal-close" id="addSessionModalClose">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Session Name</label>
+          <input type="text" id="sessionNameInput" class="text-input" placeholder="e.g. My Business, Personal" />
+        </div>
+        <button class="btn btn-primary btn-lg" id="createSessionBtn">Create & Get QR</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Contact Modal -->
+  <div class="modal-overlay" id="addContactModal">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3>Add Contact</h3>
+        <button class="modal-close" id="addContactModalClose">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Phone (with country code)</label>
+          <input type="tel" id="newContactPhone" class="text-input" placeholder="+919876543210" />
+        </div>
+        <div class="form-group">
+          <label>Name</label>
+          <input type="text" id="newContactName" class="text-input" placeholder="John Doe" />
+        </div>
+        <div class="form-group">
+          <label>Company</label>
+          <input type="text" id="newContactCompany" class="text-input" placeholder="Acme Corp" />
+        </div>
+        <div class="form-group">
+          <label>Group</label>
+          <select id="newContactGroup" class="select-input"></select>
+        </div>
+        <button class="btn btn-success btn-lg" id="saveContactBtn">✅ Save Contact</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sync WhatsApp Contacts Modal -->
+  <div class="modal-overlay" id="syncWAModal">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>Sync WhatsApp Contacts</h3>
+        <button class="modal-close" id="syncWAModalClose">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group half">
+            <label>From Session</label>
+            <select id="syncWASession" class="select-input"></select>
+          </div>
+          <div class="form-group half">
+            <label>Import to Group</label>
+            <select id="syncWAGroup" class="select-input"></select>
+          </div>
+        </div>
+        <button class="btn btn-primary" id="startSyncBtn">📲 Fetch Contacts</button>
+        <div id="syncResult" style="margin-top:16px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Group Modal -->
+  <div class="modal-overlay" id="createGroupModal">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3>Create Group</h3>
+        <button class="modal-close" id="createGroupModalClose">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Group Name</label>
+          <input type="text" id="newGroupName" class="text-input" placeholder="e.g. clients, partners" />
+        </div>
+        <div class="form-group">
+          <label>Description (optional)</label>
+          <input type="text" id="newGroupDesc" class="text-input" placeholder="Team contacts" />
+        </div>
+        <button class="btn btn-success btn-lg" id="saveGroupBtn">✅ Create Group</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Group from Selected Contacts Modal -->
+  <div class="modal-overlay" id="groupFromSelectedModal">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3>Create Group from Selected</h3>
+        <button class="modal-close" id="groupFromSelectedModalClose">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="color:var(--text-secondary); margin-bottom:16px;">
+          <span id="selectedCountLabel">0</span> contacts selected
+        </p>
+        <div class="form-group">
+          <label>New Group Name</label>
+          <input type="text" id="groupFromSelectedName" class="text-input" placeholder="e.g. hot-leads" />
+        </div>
+        <div class="form-group">
+          <label>
+            <input type="checkbox" id="groupFromSelectedCopy" checked />
+            Copy contacts (keep originals in current group)
+          </label>
+        </div>
+        <button class="btn btn-success btn-lg" id="confirmGroupFromSelectedBtn">✅ Create Group</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- New Campaign Modal -->
+  <div class="modal-overlay" id="newCampaignModal">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>New Campaign</h3>
+        <button class="modal-close" id="newCampaignModalClose">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group half">
+            <label>Send From (Session)</label>
+            <select id="campSession" class="select-input"></select>
+          </div>
+          <div class="form-group half">
+            <label>Send To (Contact Group)</label>
+            <select id="campGroup" class="select-input"></select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Message Template</label>
+          <textarea id="campTemplate" class="textarea-input" rows="5"
+            placeholder="Hello {{name}}, greetings from {{company}}!"></textarea>
+          <div class="placeholder-help">
+            <div class="placeholder-help-title">📝 How to use placeholders</div>
+            <div class="placeholder-help-body">
+              <p>Use <code>{{field_name}}</code> to insert contact-specific data into each message.</p>
+              <div class="placeholder-section">
+                <strong>Built-in fields</strong> (always available):
+                <div class="placeholder-tags">
+                  <span class="placeholder-tag" onclick="insertPlaceholder('campTemplate','name')">{{name}}</span>
+                  <span class="placeholder-tag" onclick="insertPlaceholder('campTemplate','phone')">{{phone}}</span>
+                  <span class="placeholder-tag" onclick="insertPlaceholder('campTemplate','company')">{{company}}</span>
+                </div>
+              </div>
+              <div class="placeholder-section">
+                <strong>Custom fields</strong> (from CSV columns):
+                <p>Any extra column in your imported CSV becomes a custom field. For example, if your CSV has columns
+                  like <code>city</code>, <code>product</code>, or <code>designation</code>, simply use them as:</p>
+                <div class="placeholder-tags">
+                  <span class="placeholder-tag-example">{{city}}</span>
+                  <span class="placeholder-tag-example">{{product}}</span>
+                  <span class="placeholder-tag-example">{{designation}}</span>
+                </div>
+              </div>
+              <div class="placeholder-section" id="detectedFieldsSection" style="display:none;">
+                <strong>Detected custom fields</strong> (from selected group):
+                <div class="placeholder-tags" id="detectedFieldsTags"></div>
+              </div>
+              <div class="placeholder-section">
+                <strong>Example:</strong><br />
+                <code
+                  class="example-template">Hi {{name}}, your order for {{product}} is confirmed. We'll deliver to {{city}}. Thanks! — {{company}}</code>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>📎 Attachment (optional)</label>
+          <div class="media-upload-area" id="mediaUploadArea">
+            <input type="file" id="campMediaFile" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx"
+              style="display:none;" />
+            <div class="media-upload-prompt" id="mediaUploadPrompt"
+              onclick="document.getElementById('campMediaFile').click()">
+              <span style="font-size:24px;">📁</span>
+              <span>Click to attach image, document, or audio</span>
+              <span style="font-size:11px; color:var(--text-muted);">Supports: JPG, PNG, PDF, DOC, MP3, MP4</span>
+            </div>
+            <div class="media-upload-preview" id="mediaUploadPreview" style="display:none;">
+              <div class="media-file-info">
+                <span class="media-file-icon" id="mediaFileIcon">📄</span>
+                <span class="media-file-name" id="mediaFileName">filename.jpg</span>
+                <span class="media-file-size" id="mediaFileSize">2.3 MB</span>
+              </div>
+              <button class="btn btn-danger btn-sm" onclick="removeMediaAttachment()">✕ Remove</button>
+            </div>
+          </div>
+          <input type="hidden" id="campMediaPath" />
+        </div>
+
+        <div class="form-group">
+          <label>Live Preview</label>
+          <div class="preview-bubble" id="campPreviewBubble">
+            <p class="preview-placeholder">Type a message template to see preview...</p>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group half">
+            <label>Min Delay (ms)</label>
+            <input type="number" id="campMinDelay" class="text-input" value="3000" />
+          </div>
+          <div class="form-group half">
+            <label>Max Delay (ms)</label>
+            <input type="number" id="campMaxDelay" class="text-input" value="5000" />
+          </div>
+        </div>
+
+        <div class="campaign-action-buttons">
+          <button class="btn btn-success btn-half" id="sendNowBtn">
+            🚀 Send Now
+          </button>
+          <button class="btn btn-primary btn-half" id="scheduleBtn">
+            📅 Schedule for Later
+          </button>
+        </div>
+
+        <!-- Schedule fields (hidden by default) -->
+        <div id="scheduleFields" style="display:none; margin-top:16px;">
+          <div class="form-group">
+            <label>Campaign Name</label>
+            <input type="text" id="campScheduleName" class="text-input" placeholder="e.g. Weekly newsletter" />
+          </div>
+          <div class="form-row">
+            <div class="form-group half">
+              <label>Frequency</label>
+              <select id="campFrequency" class="select-input">
+                <option value="once">One-time</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+            <div class="form-group half">
+              <label>Send Time</label>
+              <input type="time" id="campSendTime" class="text-input" value="09:00" />
+            </div>
+          </div>
+          <div class="form-row" id="dayFields" style="display:none;">
+            <div class="form-group half">
+              <label>Day of Week</label>
+              <select id="campDayOfWeek" class="select-input">
+                <option value="0">Sunday</option>
+                <option value="1">Monday</option>
+                <option value="2">Tuesday</option>
+                <option value="3">Wednesday</option>
+                <option value="4">Thursday</option>
+                <option value="5">Friday</option>
+                <option value="6">Saturday</option>
+              </select>
+            </div>
+            <div class="form-group half">
+              <label>Day of Month</label>
+              <input type="number" id="campDayOfMonth" class="text-input" value="1" min="1" max="28" />
+            </div>
+          </div>
+          <button class="btn btn-success btn-lg" id="confirmScheduleBtn">📅 Confirm Schedule</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Campaign Detail Modal -->
+  <div class="modal-overlay" id="campaignModal">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>Campaign Details</h3>
+        <button class="modal-close" id="campaignModalClose">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="campaignDetail"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sending Progress Overlay -->
+  <div class="modal-overlay" id="progressModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>📤 Sending Campaign</h3>
+        <button class="modal-close" id="progressModalClose">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="progress-bar-container">
+          <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <div class="progress-stats" id="progressStats">Starting...</div>
+        <div class="progress-log" id="progressLog"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/app.js"></script>
+  <script src="/js/sessions.js"></script>
+  <script src="/js/contacts.js"></script>
+  <script src="/js/messaging.js"></script>
+  <script src="/js/quickreplies.js"></script>
+  <script src="/js/scheduler.js"></script>
+  <script src="/js/settings.js"></script>
+
+  <!-- Quick Reply Add/Edit Modal -->
+  <div class="modal-overlay" id="quickReplyModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="quickReplyModalTitle">Add Quick Reply</h3>
+        <button class="modal-close" id="quickReplyModalClose">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="qrEditId" />
+        <div class="form-group">
+          <label>Trigger Keyword</label>
+          <input type="text" id="qrTrigger" class="text-input" placeholder="e.g. pricing, menu, 1, help" />
+          <p style="font-size:12px; color:var(--text-muted); margin-top:4px;">
+            When a contact sends this exact word, the bot will auto-reply with the response below.
+          </p>
+        </div>
+        <div class="form-group">
+          <label>Button Label (shown in messages)</label>
+          <input type="text" id="qrLabel" class="text-input" placeholder="e.g. 📋 View Pricing" />
+        </div>
+        <div class="form-group">
+          <label>Response Message</label>
+          <textarea id="qrResponse" class="textarea-input" rows="4"
+            placeholder="The message to send when the trigger is matched..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>📎 Attachment (optional)</label>
+          <div class="media-upload-area">
+            <input type="file" id="qrMediaFile" accept="image/*,audio/*,video/*,.pdf,.doc,.docx"
+              style="display:none;" />
+            <div class="media-upload-prompt" id="qrMediaPrompt"
+              onclick="document.getElementById('qrMediaFile').click()">
+              <span style="font-size:20px;">📁</span>
+              <span style="font-size:13px;">Attach a file to send with the response</span>
+            </div>
+            <div class="media-upload-preview" id="qrMediaPreview" style="display:none;">
+              <div class="media-file-info">
+                <span class="media-file-icon" id="qrMediaIcon">📄</span>
+                <span class="media-file-name" id="qrMediaName">file.pdf</span>
+              </div>
+              <button class="btn btn-danger btn-sm" onclick="removeQrMedia()">✕</button>
+            </div>
+          </div>
+          <input type="hidden" id="qrMediaPath" />
+        </div>
+        <button class="btn btn-success btn-lg" id="saveQuickReplyBtn">✅ Save Quick Reply</button>
+      </div>
+    </div>
+  </div>
+</body>
+
+</html>
