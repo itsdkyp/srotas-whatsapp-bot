@@ -4,3 +4,15 @@ data/
 uploads/
 .wwebjs_auth/
 .wwebjs_cache/
+
+# Backup files
+*.backup.*
+backup-*.tar.gz
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -6,9 +6,10 @@ const settingsProvider = document.getElementById('settingsProvider');
 const settingsGeminiKey = document.getElementById('settingsGeminiKey');
 const settingsOpenAIKey = document.getElementById('settingsOpenAIKey');
 const settingsPrompt = document.getElementById('settingsPrompt');
-const settingsMinDelay = document.getElementById('settingsMinDelay');
-const settingsMaxDelay = document.getElementById('settingsMaxDelay');
 const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+
+// Theme selector (may not exist until settings page loads)
+let settingsTheme = null;
 
 // ─── Load Settings ───
 
@@ -17,13 +18,47 @@ async function loadSettings() {
 
     settingsProvider.value = settings.ai_provider || 'gemini';
     settingsPrompt.value = settings.system_prompt || '';
-    settingsMinDelay.value = settings.min_delay || '3000';
-    settingsMaxDelay.value = settings.max_delay || '5000';
 
     // Show masked keys if they exist
     settingsGeminiKey.placeholder = settings.gemini_api_key ? 'Key is set (enter new to change)' : 'Enter Gemini API key';
     settingsOpenAIKey.placeholder = settings.openai_api_key ? 'Key is set (enter new to change)' : 'Enter OpenAI API key';
+
+    // Initialize theme selector
+    if (!settingsTheme) {
+        settingsTheme = document.getElementById('settingsTheme');
+        if (settingsTheme) {
+            settingsTheme.addEventListener('change', () => {
+                const theme = settingsTheme.value;
+                console.log('[Theme] Switching to:', theme);
+                localStorage.setItem('theme', theme);
+                console.log('[Theme] Saved to localStorage:', localStorage.getItem('theme'));
+                applyTheme(theme);
+                console.log('[Theme] Applied, body classes:', document.body.className);
+                toast(`Switched to ${theme === 'light' ? 'Light' : 'Dark'} Mode`, 'success');
+            });
+        }
+    }
+
+    // Load theme preference
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    if (settingsTheme) {
+        settingsTheme.value = savedTheme;
+    }
+    applyTheme(savedTheme);
 }
+
+// ─── Theme Switcher ───
+
+function applyTheme(theme) {
+    if (theme === 'light') {
+        document.body.classList.add('light-theme');
+    } else {
+        document.body.classList.remove('light-theme');
+    }
+}
+
+// Theme event listener is now attached in loadSettings()
+
 
 // ─── Save Settings ───
 
@@ -34,8 +69,6 @@ saveSettingsBtn.addEventListener('click', async () => {
     const payload = {
         ai_provider: settingsProvider.value,
         system_prompt: settingsPrompt.value,
-        min_delay: settingsMinDelay.value,
-        max_delay: settingsMaxDelay.value,
     };
 
     // Only send keys if they were changed

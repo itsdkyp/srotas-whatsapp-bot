@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  whatsapp-bot:
+    build: .
+    container_name: whatsapp-bot
+    restart: unless-stopped
+
+    # Don't expose port directly - nginx handles it
+    expose:
+      - "3000"
+
+    networks:
+      - whatsapp-network
+
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+
+    env_file:
+      - .env
+
+    # CRITICAL: Volume mounts for data persistence
+    volumes:
+      - whatsapp-data:/app/data
+      - whatsapp-uploads:/app/uploads
+      - whatsapp-auth:/app/.wwebjs_auth
+      - whatsapp-cache:/app/.wwebjs_cache
+
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  nginx:
+    image: nginx:alpine
+    container_name: whatsapp-nginx
+    restart: unless-stopped
+
+    # Expose port 80 for HTTP access
+    ports:
+      - "80:80"
+
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+
+    networks:
+      - whatsapp-network
+
+    depends_on:
+      - whatsapp-bot
+
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# Custom network for inter-container communication
+networks:
+  whatsapp-network:
+    driver: bridge
+
+# Named volumes for persistent storage
+volumes:
+  whatsapp-data:
+    driver: local
+  whatsapp-uploads:
+    driver: local
+  whatsapp-auth:
+    driver: local
+  whatsapp-cache:
+    driver: local

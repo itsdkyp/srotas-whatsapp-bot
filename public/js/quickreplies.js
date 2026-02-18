@@ -4,6 +4,7 @@
 
 const quickRepliesList = document.getElementById('quickRepliesList');
 const addQuickReplyBtn = document.getElementById('addQuickReplyBtn');
+
 const quickReplyModal = document.getElementById('quickReplyModal');
 const quickReplyModalClose = document.getElementById('quickReplyModalClose');
 const quickReplyModalTitle = document.getElementById('quickReplyModalTitle');

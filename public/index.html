@@ -17,12 +17,16 @@
     <aside class="sidebar">
       <div class="sidebar-header">
         <div class="logo">
-          <span class="logo-icon">🤖</span>
+          <span class="logo-icon">💬</span>
           <span class="logo-text">Srotas.bot</span>
         </div>
       </div>
       <nav class="sidebar-nav">
-        <a href="#" class="nav-item active" data-page="sessions">
+        <a href="#" class="nav-item active" data-page="dashboard">
+          <span class="nav-icon">📊</span>
+          <span class="nav-label">Dashboard</span>
+        </a>
+        <a href="#" class="nav-item" data-page="sessions">
           <span class="nav-icon">📱</span>
           <span class="nav-label">Sessions</span>
         </a>
@@ -31,12 +35,16 @@
           <span class="nav-label">Contacts</span>
         </a>
         <a href="#" class="nav-item" data-page="messaging">
-          <span class="nav-icon">✉️</span>
+          <span class="nav-icon">📢</span>
           <span class="nav-label">Campaigns</span>
         </a>
         <a href="#" class="nav-item" data-page="scheduler">
-          <span class="nav-icon">📅</span>
+          <span class="nav-icon">🕐</span>
           <span class="nav-label">Scheduler</span>
+        </a>
+        <a href="#" class="nav-item" data-page="templates">
+          <span class="nav-icon">📝</span>
+          <span class="nav-label">Templates</span>
         </a>
         <a href="#" class="nav-item" data-page="quickreplies">
           <span class="nav-icon">⚡</span>
@@ -46,19 +54,175 @@
           <span class="nav-icon">⚙️</span>
           <span class="nav-label">Settings</span>
         </a>
+        <a href="#" class="nav-item" data-page="help">
+          <span class="nav-icon">ℹ️</span>
+          <span class="nav-label">Help</span>
+        </a>
       </nav>
       <div class="sidebar-footer">
         <div class="status-indicator">
-          <span class="status-dot" id="socketStatus"></span>
+          <span class="status-dot" id="systemStatus" title="System Status"></span>
           <span class="status-label">Srotas.bot</span>
+        </div>
+        <div class="designer-credit">
+          Designed by <a href="https://srotas.tech" target="_blank" rel="noopener noreferrer">SROTAS<span class="tech-blue">.TECH</span></a>
         </div>
       </div>
     </aside>
 
     <!-- Main Content -->
     <main class="main-content">
+      <!-- Dashboard Page -->
+      <div class="page active" id="page-dashboard">
+        <div class="page-header">
+          <h1>Dashboard</h1>
+          <div class="dashboard-date-filter">
+            <select id="dashboardDateRange" class="select-input">
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="7days">Last 7 Days</option>
+              <option value="30days" selected>Last 30 Days</option>
+              <option value="all">All Time</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Stats Overview -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">📨</div>
+            <div class="stat-content">
+              <div class="stat-label">Total Messages Sent</div>
+              <div class="stat-value" id="statTotalMessages">0</div>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon">👥</div>
+            <div class="stat-content">
+              <div class="stat-label">People Reached</div>
+              <div class="stat-value" id="statPeopleReached">0</div>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon">📎</div>
+            <div class="stat-content">
+              <div class="stat-label">Media Files Sent</div>
+              <div class="stat-value" id="statMediaSent">0</div>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon">✓</div>
+            <div class="stat-content">
+              <div class="stat-label">Delivery Rate</div>
+              <div class="stat-value" id="statDeliveryRate">0%</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="dashboard-charts">
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3 id="messagesChartTitle">📈 Messages Over Time</h3>
+              <div class="chart-legend">
+                <span class="legend-item"><span class="legend-dot success"></span> Sent</span>
+                <span class="legend-item"><span class="legend-dot danger"></span> Failed</span>
+              </div>
+            </div>
+            <div class="chart-container">
+              <canvas id="messagesChart"></canvas>
+            </div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-header">
+              <h3>🕐 Hourly Activity Pattern (All Time)</h3>
+            </div>
+            <div class="chart-container">
+              <canvas id="hourlyChart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI Analytics & Sessions Row -->
+        <div class="dashboard-mid-row">
+          <div class="analytics-cards-left">
+            <div class="chart-card ai-analytics-compact">
+              <div class="chart-header">
+                <h3>🧠 AI Analytics</h3>
+              </div>
+              <div class="ai-stats-compact">
+                <div class="ai-stat-item">
+                  <div class="ai-stat-value" id="aiTotalConversations">0</div>
+                  <div class="ai-stat-label">Conversations</div>
+                </div>
+                <div class="ai-stat-item">
+                  <div class="ai-stat-value" id="aiMessagesHandled">0</div>
+                  <div class="ai-stat-label">AI Messages</div>
+                </div>
+                <div class="ai-stat-item">
+                  <div class="ai-stat-value" id="aiAvgResponseTime">0s</div>
+                  <div class="ai-stat-label">Avg Time</div>
+                </div>
+                <div class="ai-stat-item">
+                  <div class="ai-stat-value" id="aiSuccessRate">0%</div>
+                  <div class="ai-stat-label">Success Rate</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="chart-card quick-reply-analytics-compact">
+              <div class="chart-header">
+                <h3>⚡ Quick Reply Analytics</h3>
+              </div>
+              <div class="ai-stats-compact">
+                <div class="ai-stat-item">
+                  <div class="ai-stat-value" id="qrTotalTriggers">0</div>
+                  <div class="ai-stat-label">Total Triggers</div>
+                </div>
+                <div class="ai-stat-item">
+                  <div class="ai-stat-value" id="qrUniqueUsers">0</div>
+                  <div class="ai-stat-label">Unique Users</div>
+                </div>
+                <div class="ai-stat-item">
+                  <div class="ai-stat-value" id="qrAvgResponseTime">0ms</div>
+                  <div class="ai-stat-label">Avg Time</div>
+                </div>
+                <div class="ai-stat-item">
+                  <div class="ai-stat-value" id="qrMostUsed">—</div>
+                  <div class="ai-stat-label">Most Used</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="analytics-cards-right">
+            <div class="chart-card sessions-compact">
+              <div class="chart-header">
+                <h3>📱 Active Sessions</h3>
+              </div>
+              <div class="sessions-summary" id="sessionsSummary">
+                <!-- Populated by JS -->
+              </div>
+            </div>
+
+            <div class="chart-card campaigns-compact">
+              <div class="chart-header">
+                <h3>🚀 Top Campaigns</h3>
+              </div>
+              <div class="top-campaigns-list" id="topCampaignsList">
+                <!-- Populated by JS -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Sessions Page -->
-      <div class="page active" id="page-sessions">
+      <div class="page" id="page-sessions">
         <div class="page-header">
           <h1>WhatsApp Sessions</h1>
           <button class="btn btn-primary" id="addSessionBtn">
@@ -131,6 +295,68 @@
         <div id="campaignsList"></div>
       </div>
 
+      <!-- Templates Page -->
+      <div class="page" id="page-templates">
+        <div class="page-header">
+          <h1>Message Templates</h1>
+          <button class="btn btn-primary" id="addTemplateBtn">
+            <span>+</span> New Template
+          </button>
+        </div>
+        <p style="color:var(--text-secondary); margin-bottom:20px;">
+          Create reusable message templates with text, media, and buttons. Use them when creating campaigns.
+        </p>
+        <div id="templatesList"></div>
+      </div>
+
+      <!-- Template Add/Edit Modal -->
+      <div class="modal-overlay" id="templateModal">
+        <div class="modal modal-lg">
+          <div class="modal-header">
+            <h3 id="templateModalTitle">New Template</h3>
+            <button class="modal-close" id="templateModalClose">&times;</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label>Template Name</label>
+              <input type="text" id="tmplName" class="text-input" placeholder="e.g. Welcome Message, Promo Offer" />
+            </div>
+            <div class="form-group">
+              <label>Message Content</label>
+              <textarea id="tmplContent" class="textarea-input" rows="5"
+                placeholder="Hello {{name}}, greetings from {{company}}!"></textarea>
+              <div class="placeholder-tags-compact" style="margin-top:6px;">
+                <span class="placeholder-tag" onclick="insertPlaceholder('tmplContent','name')">{{name}}</span>
+                <span class="placeholder-tag" onclick="insertPlaceholder('tmplContent','phone')">{{phone}}</span>
+                <span class="placeholder-tag" onclick="insertPlaceholder('tmplContent','company')">{{company}}</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>📎 Media Attachments (optional)</label>
+              <div class="media-upload-area">
+                <input type="file" id="tmplMediaFile" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx"
+                  multiple style="display:none;" />
+                <div class="media-upload-prompt" id="tmplMediaPrompt"
+                  onclick="document.getElementById('tmplMediaFile').click()">
+                  <span style="font-size:24px;">📁</span>
+                  <span>Click to attach files</span>
+                </div>
+                <div class="media-file-list" id="tmplMediaFileList"></div>
+                <div class="media-add-more" id="tmplMediaAddMore" style="display:none;">
+                  <button class="btn btn-secondary btn-sm" onclick="document.getElementById('tmplMediaFile').click()">+ Add More Files</button>
+                </div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Clickable Buttons (optional)</label>
+              <div id="tmplButtonsList" class="buttons-list"></div>
+              <button class="btn btn-secondary btn-sm" id="tmplAddButton" style="margin-top:8px;">+ Add Button (max 3)</button>
+            </div>
+            <button class="btn btn-success btn-lg" id="saveTemplateBtn">💾 Save Template</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Quick Replies Page -->
       <div class="page" id="page-quickreplies">
         <div class="page-header">
@@ -152,46 +378,350 @@
           <h1>Settings</h1>
         </div>
         <div class="settings-grid">
-          <div class="card">
-            <h3>🤖 AI Provider</h3>
-            <div class="form-group">
-              <label>Provider</label>
-              <select id="settingsProvider" class="select-input">
-                <option value="gemini">Google Gemini</option>
-                <option value="openai">OpenAI</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Gemini API Key</label>
-              <input type="password" id="settingsGeminiKey" class="text-input" placeholder="Enter Gemini API key" />
-            </div>
-            <div class="form-group">
-              <label>OpenAI API Key</label>
-              <input type="password" id="settingsOpenAIKey" class="text-input" placeholder="Enter OpenAI API key" />
-            </div>
-          </div>
-          <div class="card">
-            <h3>💬 Auto-Reply</h3>
-            <div class="form-group">
-              <label>System Prompt</label>
-              <textarea id="settingsPrompt" class="textarea-input" rows="5"
-                placeholder="You are a helpful assistant..."></textarea>
-            </div>
-          </div>
-          <div class="card">
-            <h3>⏱️ Delays</h3>
-            <div class="form-row">
-              <div class="form-group half">
-                <label>Min Delay (ms)</label>
-                <input type="number" id="settingsMinDelay" class="text-input" value="3000" />
+          <!-- Left Column: Configuration -->
+          <div class="settings-left">
+
+            <!-- AI Provider Section -->
+            <div class="settings-section-card">
+              <div class="settings-section-header">
+                <h2>🧠 AI Provider</h2>
               </div>
-              <div class="form-group half">
-                <label>Max Delay (ms)</label>
-                <input type="number" id="settingsMaxDelay" class="text-input" value="5000" />
+              <div class="settings-subsection">
+                <div class="form-group">
+                  <label>Provider</label>
+                  <select id="settingsProvider" class="select-input">
+                    <option value="gemini">Google Gemini</option>
+                    <option value="openai">OpenAI</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Gemini API Key</label>
+                  <input type="password" id="settingsGeminiKey" class="text-input" placeholder="Enter Gemini API key" />
+                </div>
+                <div class="form-group">
+                  <label>OpenAI API Key</label>
+                  <input type="password" id="settingsOpenAIKey" class="text-input" placeholder="Enter OpenAI API key" />
+                </div>
               </div>
             </div>
+
+            <!-- Appearance Section -->
+            <div class="settings-section-card">
+              <div class="settings-section-header">
+                <h2>🎨 Appearance</h2>
+              </div>
+              <div class="settings-subsection">
+                <div class="form-group">
+                  <label>Color Mode</label>
+                  <select id="settingsTheme" class="select-input">
+                    <option value="dark">Dark Mode</option>
+                    <option value="light">Light Mode</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <button class="btn btn-primary btn-lg" id="saveSettingsBtn">💾 Save Settings</button>
           </div>
-          <button class="btn btn-primary btn-lg" id="saveSettingsBtn">💾 Save Settings</button>
+
+          <!-- Right Column: AI Prompt (Large) -->
+          <div class="settings-right">
+            <div class="settings-section-card settings-prompt-card">
+              <div class="settings-section-header">
+                <h2>🧠 AI System Prompt</h2>
+                <p>Define how the AI should behave when responding to messages</p>
+              </div>
+              <div class="settings-subsection">
+                <div class="form-group">
+                  <textarea id="settingsPrompt" class="textarea-input settings-prompt-textarea"
+                    placeholder="You are a helpful assistant..."></textarea>
+                  <p style="font-size:12px; color:var(--text-muted); margin-top:8px;">
+                    This prompt sets the personality, tone, and guidelines for AI auto-replies to incoming messages.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Help Page -->
+      <div class="page" id="page-help">
+        <div class="page-header">
+          <h1>Help & Resources</h1>
+        </div>
+        <p style="color:var(--text-secondary); margin-bottom:24px;">
+          Learn how to use Srotas.bot effectively. Click on any section to expand.
+        </p>
+
+        <div class="help-accordion">
+          <!-- Getting Started -->
+          <div class="help-item">
+            <div class="help-header" onclick="toggleHelp(this)">
+              <span class="help-title">🚀 Getting Started</span>
+              <span class="help-toggle">▼</span>
+            </div>
+            <div class="help-content">
+              <h4>1. Connect Your WhatsApp Account</h4>
+              <p>Go to <strong>Sessions</strong> → Click <strong>+ Add Account</strong> → Scan the QR code with WhatsApp (Linked Devices).</p>
+
+              <h4>2. Import Your Contacts</h4>
+              <p>Go to <strong>Contacts</strong> → Click <strong>📁 Import CSV</strong> → Upload your contacts file. Use the sample CSV below as a template.</p>
+
+              <h4>3. Create Your First Campaign</h4>
+              <p>Go to <strong>Campaigns</strong> → Click <strong>+ New Campaign</strong> → Write your message with placeholders like {{name}} → Click <strong>🚀 Send Now</strong>.</p>
+            </div>
+          </div>
+
+          <!-- Sample CSV -->
+          <div class="help-item">
+            <div class="help-header" onclick="toggleHelp(this)">
+              <span class="help-title">📥 Download Sample CSV</span>
+              <span class="help-toggle">▼</span>
+            </div>
+            <div class="help-content">
+              <p>Download a ready-to-use CSV template with example contacts and all available fields:</p>
+              <button class="btn btn-primary" id="downloadSampleCsvBtn" style="margin-top:12px;">
+                <span>⬇️</span> Download Sample CSV
+              </button>
+              <div style="margin-top:16px; padding:12px; background:var(--bg-input); border-radius:var(--radius-sm);">
+                <strong>CSV Format Guide:</strong>
+                <ul style="margin-top:8px; padding-left:20px; color:var(--text-secondary); line-height:1.8;">
+                  <li><code>phone</code> — Required. WhatsApp number with country code (e.g., +919876543210)</li>
+                  <li><code>name</code> — Contact's full name</li>
+                  <li><code>company</code> — Company or organization name</li>
+                  <li><strong>Custom fields</strong> — Any extra column (email, city, product, etc.) becomes a custom field you can use in messages</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- Message Templates -->
+          <div class="help-item">
+            <div class="help-header" onclick="toggleHelp(this)">
+              <span class="help-title">📝 Using Message Templates & Placeholders</span>
+              <span class="help-toggle">▼</span>
+            </div>
+            <div class="help-content">
+              <h4>Placeholders</h4>
+              <p>Use placeholders to personalize messages for each contact:</p>
+              <ul style="padding-left:20px; color:var(--text-secondary); line-height:1.8;">
+                <li><code>{{name}}</code> — Contact's name</li>
+                <li><code>{{phone}}</code> — Contact's phone number</li>
+                <li><code>{{company}}</code> — Contact's company</li>
+                <li><code>{{custom_field}}</code> — Any custom field from your CSV (e.g., {{city}}, {{product}})</li>
+              </ul>
+
+              <h4>Example Message</h4>
+              <div style="margin-top:12px; padding:12px; background:var(--bg-input); border-radius:var(--radius-sm); font-family:monospace; font-size:13px;">
+                Hi {{name}}, <br/>
+                Thanks for choosing {{product}}! <br/>
+                We'll deliver to {{city}} soon. <br/>
+                - {{company}}
+              </div>
+
+              <h4 style="margin-top:16px;">Reusable Templates</h4>
+              <p>Save frequently used messages as templates:</p>
+              <ol style="padding-left:20px; color:var(--text-secondary); line-height:1.8;">
+                <li>Go to <strong>Templates</strong> tab</li>
+                <li>Click <strong>+ New Template</strong></li>
+                <li>Add message, media, and buttons</li>
+                <li>Load templates when creating campaigns</li>
+              </ol>
+            </div>
+          </div>
+
+          <!-- Clickable Buttons -->
+          <div class="help-item">
+            <div class="help-header" onclick="toggleHelp(this)">
+              <span class="help-title">🔘 Adding Clickable Buttons</span>
+              <span class="help-toggle">▼</span>
+            </div>
+            <div class="help-content">
+              <p>Add interactive poll-based buttons to your campaigns (up to 3 buttons):</p>
+              <ol style="padding-left:20px; color:var(--text-secondary); line-height:1.8;">
+                <li>When creating a campaign, scroll to <strong>Clickable Buttons</strong> section</li>
+                <li>Click <strong>+ Add Button</strong></li>
+                <li>Enter button label (e.g., "View Pricing")</li>
+                <li>Enter auto-reply content (what to send when clicked)</li>
+                <li>When recipients tap a button, they see a poll and the bot auto-sends your reply</li>
+              </ol>
+              <div style="margin-top:12px; padding:12px; background:rgba(37, 211, 102, 0.1); border-left:3px solid var(--wa-green); border-radius:var(--radius-sm);">
+                <strong>💡 Tip:</strong> Buttons appear as a poll after your message. When a contact selects an option, the bot automatically sends the configured reply.
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Replies -->
+          <div class="help-item">
+            <div class="help-header" onclick="toggleHelp(this)">
+              <span class="help-title">⚡ Setting Up Quick Replies</span>
+              <span class="help-toggle">▼</span>
+            </div>
+            <div class="help-content">
+              <p>Quick Replies automatically respond when contacts send specific keywords:</p>
+              <ol style="padding-left:20px; color:var(--text-secondary); line-height:1.8;">
+                <li>Go to <strong>Quick Replies</strong> tab</li>
+                <li>Click <strong>+ Add Quick Reply</strong></li>
+                <li>Set trigger keyword (e.g., "pricing", "help", "menu")</li>
+                <li>Write the auto-reply message</li>
+                <li>Optionally attach media (image, PDF, etc.)</li>
+                <li>Toggle <strong>Enable</strong> when ready</li>
+              </ol>
+              <div style="margin-top:12px; padding:12px; background:var(--bg-input); border-radius:var(--radius-sm);">
+                <strong>Example:</strong><br/>
+                Trigger: <code>pricing</code><br/>
+                Reply: <em>"Our Premium Plan is $99/month. Enterprise Plan is $299/month. Reply with your choice!"</em>
+              </div>
+            </div>
+          </div>
+
+          <!-- Scheduling -->
+          <div class="help-item">
+            <div class="help-header" onclick="toggleHelp(this)">
+              <span class="help-title">📅 Scheduling Campaigns</span>
+              <span class="help-toggle">▼</span>
+            </div>
+            <div class="help-content">
+              <p>Schedule messages to send automatically at specific times:</p>
+              <ol style="padding-left:20px; color:var(--text-secondary); line-height:1.8;">
+                <li>Create a campaign as usual</li>
+                <li>Click <strong>📅 Schedule</strong> instead of Send Now</li>
+                <li>Choose frequency:
+                  <ul style="margin-top:6px;">
+                    <li><strong>Once</strong> — Send at a specific time</li>
+                    <li><strong>Daily</strong> — Send every day at set time</li>
+                    <li><strong>Weekly</strong> — Send every week on a specific day</li>
+                    <li><strong>Monthly</strong> — Send every month on a specific date</li>
+                  </ul>
+                </li>
+                <li>View and manage scheduled campaigns in <strong>Scheduler</strong> tab</li>
+              </ol>
+            </div>
+          </div>
+
+          <!-- Multi-Media -->
+          <div class="help-item">
+            <div class="help-header" onclick="toggleHelp(this)">
+              <span class="help-title">📎 Sending Multiple Media Files</span>
+              <span class="help-toggle">▼</span>
+            </div>
+            <div class="help-content">
+              <p>Attach up to 10 media files to each campaign:</p>
+              <ul style="padding-left:20px; color:var(--text-secondary); line-height:1.8;">
+                <li>Supported: Images (JPG, PNG), Documents (PDF, DOC, XLS), Audio (MP3, M4A), Video (MP4)</li>
+                <li>First media shows your message as caption</li>
+                <li>Additional media files sent separately</li>
+                <li>Click <strong>+ Add More Files</strong> to attach multiple files</li>
+              </ul>
+            </div>
+          </div>
+
+          <!-- Campaign Analytics -->
+          <div class="help-item">
+            <div class="help-header" onclick="toggleHelp(this)">
+              <span class="help-title">📊 Understanding Campaign Analytics</span>
+              <span class="help-toggle">▼</span>
+            </div>
+            <div class="help-content">
+              <p>Track campaign performance with detailed analytics:</p>
+              <ul style="padding-left:20px; color:var(--text-secondary); line-height:1.8;">
+                <li>Click <strong>Analytics</strong> on any campaign</li>
+                <li>View: Total sent, delivered, failed, success rate</li>
+                <li>See error breakdown (why messages failed)</li>
+                <li>Filter by All/Sent/Failed messages</li>
+                <li>Export detailed report as CSV</li>
+                <li>Retry failed messages or restart entire campaign</li>
+              </ul>
+            </div>
+          </div>
+
+          <!-- Best Practices -->
+          <div class="help-item">
+            <div class="help-header" onclick="toggleHelp(this)">
+              <span class="help-title">✨ Best Practices</span>
+              <span class="help-toggle">▼</span>
+            </div>
+            <div class="help-content">
+              <h4>🛡️ Avoiding WhatsApp Bans (CRITICAL)</h4>
+              <div style="padding:12px; background:rgba(34,197,94,0.1); border-left:3px solid #22c55e; border-radius:4px; margin-bottom:16px;">
+                <p style="color:var(--text-primary); font-weight:600; margin-bottom:8px;">✓ Our defaults are optimized for the sweet spot: Fast delivery + Ban-proof!</p>
+                <ul style="padding-left:20px; color:var(--text-secondary); line-height:1.8; margin:0;">
+                  <li><strong>Use 8-18 second delays</strong> (default settings) — Perfect balance of speed & safety</li>
+                  <li><strong>Limit: 50-100 messages per day</strong> per account for safety</li>
+                  <li><strong>Warm up new accounts</strong> — start with 10-20 messages/day for the first week</li>
+                  <li><strong>Randomization is automatic</strong> — system picks random delay between min & max</li>
+                  <li><strong>Avoid sending after 10 PM</strong> or before 9 AM local time</li>
+                  <li><strong>Never send identical messages</strong> — use placeholders to personalize ({{name}}, {{company}})</li>
+                </ul>
+              </div>
+
+              <div style="padding:12px; background:rgba(59,130,246,0.1); border-left:3px solid #3b82f6; border-radius:4px; margin-bottom:16px;">
+                <p style="color:var(--text-primary); font-weight:600; margin-bottom:4px;">⚡ Campaign Speed Estimates:</p>
+                <ul style="padding-left:20px; color:var(--text-secondary); line-height:1.8; margin:0; font-size:13px;">
+                  <li>50 messages ≈ <strong>11 minutes</strong></li>
+                  <li>100 messages ≈ <strong>22 minutes</strong></li>
+                  <li>200 messages ≈ <strong>43 minutes</strong></li>
+                </ul>
+              </div>
+
+              <h4>📱 WhatsApp Guidelines</h4>
+              <ul style="padding-left:20px; color:var(--text-secondary); line-height:1.8;">
+                <li>Only message people who have opted in or are existing contacts</li>
+                <li>Respect WhatsApp's Business Policy and Terms of Service</li>
+                <li>Provide value in every message — avoid spam</li>
+                <li>Include opt-out instructions if doing marketing</li>
+                <li>Use proper business account verification when possible</li>
+              </ul>
+
+              <h4 style="margin-top:16px;">🎯 Campaign Tips</h4>
+              <ul style="padding-left:20px; color:var(--text-secondary); line-height:1.8;">
+                <li><strong>Always test with 2-3 contacts first</strong> before full campaign</li>
+                <li>Personalize with placeholders ({{name}}, {{company}})</li>
+                <li>Keep messages concise and clear (under 500 characters)</li>
+                <li>Include a clear call-to-action</li>
+                <li>Use templates to save time and maintain consistency</li>
+                <li>Monitor delivery status and pause if many failures occur</li>
+              </ul>
+
+              <h4 style="margin-top:16px;">⚠️ Troubleshooting Common Issues</h4>
+              <ul style="padding-left:20px; color:var(--text-secondary); line-height:1.8;">
+                <li>Verify phone numbers include country code (+91 for India)</li>
+                <li>Check that your WhatsApp session is "Connected" before sending</li>
+                <li>If getting rate limited, increase delays to 30-60 seconds</li>
+                <li>Monitor campaign analytics to identify issues early</li>
+              </ul>
+            </div>
+          </div>
+
+          <!-- Troubleshooting -->
+          <div class="help-item">
+            <div class="help-header" onclick="toggleHelp(this)">
+              <span class="help-title">🔧 Troubleshooting</span>
+              <span class="help-toggle">▼</span>
+            </div>
+            <div class="help-content">
+              <h4>Session shows "Disconnected" or "Error"</h4>
+              <p style="color:var(--text-secondary);">Click <strong>🔗 Relink</strong> to clear auth and scan a fresh QR code.</p>
+
+              <h4 style="margin-top:12px;">Messages not sending</h4>
+              <ul style="padding-left:20px; color:var(--text-secondary); line-height:1.8;">
+                <li>Ensure WhatsApp session status is "Connected"</li>
+                <li>Check phone numbers have country code (e.g., +919876543210)</li>
+                <li>View campaign analytics for error details</li>
+              </ul>
+
+              <h4 style="margin-top:12px;">CSV import failed</h4>
+              <ul style="padding-left:20px; color:var(--text-secondary); line-height:1.8;">
+                <li>Use the sample CSV template as reference</li>
+                <li>Ensure 'phone' column exists and has valid numbers</li>
+                <li>Check file is saved as CSV (not Excel format)</li>
+              </ul>
+
+              <h4 style="margin-top:12px;">Buttons showing as text</h4>
+              <p style="color:var(--text-secondary);">This is normal — WhatsApp native buttons are deprecated. Buttons appear as polls (clickable options) after your message.</p>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -247,7 +777,7 @@
             <tbody id="importPreviewBody"></tbody>
           </table>
         </div>
-        <button class="btn btn-success btn-lg" id="confirmImportBtn">✅ Import Contacts</button>
+        <button class="btn btn-success btn-lg" id="confirmImportBtn">✓ Import Contacts</button>
       </div>
     </div>
   </div>
@@ -293,7 +823,7 @@
           <label>Group</label>
           <select id="newContactGroup" class="select-input"></select>
         </div>
-        <button class="btn btn-success btn-lg" id="saveContactBtn">✅ Save Contact</button>
+        <button class="btn btn-success btn-lg" id="saveContactBtn">✓ Save Contact</button>
       </div>
     </div>
   </div>
@@ -338,7 +868,7 @@
           <label>Description (optional)</label>
           <input type="text" id="newGroupDesc" class="text-input" placeholder="Team contacts" />
         </div>
-        <button class="btn btn-success btn-lg" id="saveGroupBtn">✅ Create Group</button>
+        <button class="btn btn-success btn-lg" id="saveGroupBtn">✓ Create Group</button>
       </div>
     </div>
   </div>
@@ -364,7 +894,7 @@
             Copy contacts (keep originals in current group)
           </label>
         </div>
-        <button class="btn btn-success btn-lg" id="confirmGroupFromSelectedBtn">✅ Create Group</button>
+        <button class="btn btn-success btn-lg" id="confirmGroupFromSelectedBtn">✓ Create Group</button>
       </div>
     </div>
   </div>
@@ -389,65 +919,44 @@
         </div>
 
         <div class="form-group">
-          <label>Message Template</label>
-          <textarea id="campTemplate" class="textarea-input" rows="5"
-            placeholder="Hello {{name}}, greetings from {{company}}!"></textarea>
-          <div class="placeholder-help">
-            <div class="placeholder-help-title">📝 How to use placeholders</div>
-            <div class="placeholder-help-body">
-              <p>Use <code>{{field_name}}</code> to insert contact-specific data into each message.</p>
-              <div class="placeholder-section">
-                <strong>Built-in fields</strong> (always available):
-                <div class="placeholder-tags">
-                  <span class="placeholder-tag" onclick="insertPlaceholder('campTemplate','name')">{{name}}</span>
-                  <span class="placeholder-tag" onclick="insertPlaceholder('campTemplate','phone')">{{phone}}</span>
-                  <span class="placeholder-tag" onclick="insertPlaceholder('campTemplate','company')">{{company}}</span>
-                </div>
-              </div>
-              <div class="placeholder-section">
-                <strong>Custom fields</strong> (from CSV columns):
-                <p>Any extra column in your imported CSV becomes a custom field. For example, if your CSV has columns
-                  like <code>city</code>, <code>product</code>, or <code>designation</code>, simply use them as:</p>
-                <div class="placeholder-tags">
-                  <span class="placeholder-tag-example">{{city}}</span>
-                  <span class="placeholder-tag-example">{{product}}</span>
-                  <span class="placeholder-tag-example">{{designation}}</span>
-                </div>
-              </div>
-              <div class="placeholder-section" id="detectedFieldsSection" style="display:none;">
-                <strong>Detected custom fields</strong> (from selected group):
-                <div class="placeholder-tags" id="detectedFieldsTags"></div>
-              </div>
-              <div class="placeholder-section">
-                <strong>Example:</strong><br />
-                <code
-                  class="example-template">Hi {{name}}, your order for {{product}} is confirmed. We'll deliver to {{city}}. Thanks! — {{company}}</code>
-              </div>
-            </div>
+          <label>Load Template</label>
+          <div class="template-selector-row">
+            <select id="campTemplateSelector" class="select-input">
+              <option value="">— Write from scratch —</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" onclick="deleteSelectedTemplate()" id="deleteTemplateBtn" style="display:none;" title="Delete template">🗑️</button>
           </div>
         </div>
 
         <div class="form-group">
-          <label>📎 Attachment (optional)</label>
+          <label>Message Template</label>
+          <textarea id="campTemplate" class="textarea-input" rows="5"
+            placeholder="Hello {{name}}, greetings from {{company}}!"></textarea>
+          <div class="placeholder-tags-compact">
+            <span class="placeholder-tag" onclick="insertPlaceholder('campTemplate','name')">{{name}}</span>
+            <span class="placeholder-tag" onclick="insertPlaceholder('campTemplate','phone')">{{phone}}</span>
+            <span class="placeholder-tag" onclick="insertPlaceholder('campTemplate','company')">{{company}}</span>
+            <span id="detectedFieldsTags" style="display:contents;"></span>
+          </div>
+          <div id="detectedFieldsSection" style="display:none;"></div>
+        </div>
+
+        <div class="form-group">
+          <label>📎 Attachments (optional — up to 10 files)</label>
           <div class="media-upload-area" id="mediaUploadArea">
             <input type="file" id="campMediaFile" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx"
-              style="display:none;" />
+              multiple style="display:none;" />
             <div class="media-upload-prompt" id="mediaUploadPrompt"
               onclick="document.getElementById('campMediaFile').click()">
               <span style="font-size:24px;">📁</span>
-              <span>Click to attach image, document, or audio</span>
-              <span style="font-size:11px; color:var(--text-muted);">Supports: JPG, PNG, PDF, DOC, MP3, MP4</span>
+              <span>Click to attach images, documents, or audio</span>
+              <span style="font-size:11px; color:var(--text-muted);">Supports: JPG, PNG, PDF, DOC, MP3, MP4 (max 10 files)</span>
             </div>
-            <div class="media-upload-preview" id="mediaUploadPreview" style="display:none;">
-              <div class="media-file-info">
-                <span class="media-file-icon" id="mediaFileIcon">📄</span>
-                <span class="media-file-name" id="mediaFileName">filename.jpg</span>
-                <span class="media-file-size" id="mediaFileSize">2.3 MB</span>
-              </div>
-              <button class="btn btn-danger btn-sm" onclick="removeMediaAttachment()">✕ Remove</button>
+            <div class="media-file-list" id="mediaFileList"></div>
+            <div class="media-add-more" id="mediaAddMore" style="display:none;">
+              <button class="btn btn-secondary btn-sm" onclick="document.getElementById('campMediaFile').click()">+ Add More Files</button>
             </div>
           </div>
-          <input type="hidden" id="campMediaPath" />
         </div>
 
         <div class="form-group">
@@ -457,23 +966,47 @@
           </div>
         </div>
 
-        <div class="form-row">
-          <div class="form-group half">
-            <label>Min Delay (ms)</label>
-            <input type="number" id="campMinDelay" class="text-input" value="3000" />
+        <div class="form-group">
+          <label>Clickable Buttons (Optional)</label>
+          <div id="campaignButtonsArea">
+            <p style="font-size:12px; color:var(--text-secondary); margin-bottom:8px;">
+              Add clickable buttons sent as a poll after your message. When a recipient taps an option, the bot auto-sends the reply content.
+            </p>
+            <div class="buttons-list" id="campaignButtonsList"></div>
+            <button class="btn btn-secondary btn-sm" id="addCampaignButton" style="margin-top:8px;">
+              + Add Button (max 3)
+            </button>
           </div>
-          <div class="form-group half">
-            <label>Max Delay (ms)</label>
-            <input type="number" id="campMaxDelay" class="text-input" value="5000" />
+        </div>
+
+        <div class="form-group">
+          <label>Message Delays (Sweet Spot: Fast & Ban-Proof)</label>
+          <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px; padding:10px; background:rgba(34,197,94,0.1); border-left:3px solid #22c55e; border-radius:4px;">
+            ✓ <strong>Optimized:</strong> 8-18 sec delays = Fast delivery + WhatsApp safe. Avg: 13 sec/msg.
+          </p>
+          <div class="form-row">
+            <div class="form-group half">
+              <label>Min Delay (ms)</label>
+              <input type="number" id="campMinDelay" class="text-input" value="8000" step="1000" />
+              <p style="font-size:10px; color:var(--text-muted); margin-top:4px;">Default: 8 sec</p>
+            </div>
+            <div class="form-group half">
+              <label>Max Delay (ms)</label>
+              <input type="number" id="campMaxDelay" class="text-input" value="18000" step="1000" />
+              <p style="font-size:10px; color:var(--text-muted); margin-top:4px;">Default: 18 sec</p>
+            </div>
           </div>
         </div>
 
         <div class="campaign-action-buttons">
-          <button class="btn btn-success btn-half" id="sendNowBtn">
+          <button class="btn btn-success" id="sendNowBtn" style="flex:1;">
             🚀 Send Now
           </button>
-          <button class="btn btn-primary btn-half" id="scheduleBtn">
-            📅 Schedule for Later
+          <button class="btn btn-primary" id="scheduleBtn" style="flex:1;">
+            📅 Schedule
+          </button>
+          <button class="btn btn-secondary" onclick="saveAsTemplate()" style="flex:0 0 auto;">
+            💾 Save Template
           </button>
         </div>
 
@@ -498,23 +1031,21 @@
               <input type="time" id="campSendTime" class="text-input" value="09:00" />
             </div>
           </div>
-          <div class="form-row" id="dayFields" style="display:none;">
-            <div class="form-group half">
-              <label>Day of Week</label>
-              <select id="campDayOfWeek" class="select-input">
-                <option value="0">Sunday</option>
-                <option value="1">Monday</option>
-                <option value="2">Tuesday</option>
-                <option value="3">Wednesday</option>
-                <option value="4">Thursday</option>
-                <option value="5">Friday</option>
-                <option value="6">Saturday</option>
-              </select>
-            </div>
-            <div class="form-group half">
-              <label>Day of Month</label>
-              <input type="number" id="campDayOfMonth" class="text-input" value="1" min="1" max="28" />
-            </div>
+          <div class="form-group" id="dayOfWeekField" style="display:none;">
+            <label>Day of Week</label>
+            <select id="campDayOfWeek" class="select-input">
+              <option value="0">Sunday</option>
+              <option value="1">Monday</option>
+              <option value="2">Tuesday</option>
+              <option value="3">Wednesday</option>
+              <option value="4">Thursday</option>
+              <option value="5">Friday</option>
+              <option value="6">Saturday</option>
+            </select>
+          </div>
+          <div class="form-group" id="dayOfMonthField" style="display:none;">
+            <label>Day of Month</label>
+            <input type="number" id="campDayOfMonth" class="text-input" value="1" min="1" max="28" />
           </div>
           <button class="btn btn-success btn-lg" id="confirmScheduleBtn">📅 Confirm Schedule</button>
         </div>
@@ -524,9 +1055,9 @@
 
   <!-- Campaign Detail Modal -->
   <div class="modal-overlay" id="campaignModal">
-    <div class="modal modal-lg">
+    <div class="modal modal-xl">
       <div class="modal-header">
-        <h3>Campaign Details</h3>
+        <h3>Campaign Analytics</h3>
         <button class="modal-close" id="campaignModalClose">&times;</button>
       </div>
       <div class="modal-body">
@@ -551,15 +1082,6 @@
       </div>
     </div>
   </div>
-
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="/js/app.js"></script>
-  <script src="/js/sessions.js"></script>
-  <script src="/js/contacts.js"></script>
-  <script src="/js/messaging.js"></script>
-  <script src="/js/quickreplies.js"></script>
-  <script src="/js/scheduler.js"></script>
-  <script src="/js/settings.js"></script>
 
   <!-- Quick Reply Add/Edit Modal -->
   <div class="modal-overlay" id="quickReplyModal">
@@ -606,10 +1128,23 @@
           </div>
           <input type="hidden" id="qrMediaPath" />
         </div>
-        <button class="btn btn-success btn-lg" id="saveQuickReplyBtn">✅ Save Quick Reply</button>
+        <button class="btn btn-success btn-lg" id="saveQuickReplyBtn">✓ Save Quick Reply</button>
       </div>
     </div>
   </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="/js/app.js"></script>
+  <script src="/js/dashboard.js"></script>
+  <script src="/js/sessions.js"></script>
+  <script src="/js/contacts.js"></script>
+  <script src="/js/messaging.js"></script>
+  <script src="/js/templates.js"></script>
+  <script src="/js/quickreplies.js"></script>
+  <script src="/js/scheduler.js"></script>
+  <script src="/js/settings.js"></script>
+  <script src="/js/help.js"></script>
 </body>
 
 </html>

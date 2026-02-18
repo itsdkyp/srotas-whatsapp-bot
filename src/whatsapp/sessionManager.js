@@ -161,6 +161,38 @@ async function restartSession(sessionId) {
     createClient(sessionId, dbSession.name);
 }
 
+async function relinkSession(sessionId) {
+    const dbSession = sessionDb.getAll().find(s => s.id === sessionId);
+    if (!dbSession) throw new Error('Session not found');
+
+    // Destroy existing client
+    const client = clients.get(sessionId);
+    if (client) {
+        try {
+            await Promise.race([
+                client.destroy(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('destroy timeout')), 5000))
+            ]);
+        } catch (e) {
+            console.log(`[Session ${sessionId}] destroy on relink: ${e.message}`);
+        }
+        clients.delete(sessionId);
+    }
+    sessionStates.delete(sessionId);
+
+    // Clear stored auth data so a fresh QR is generated
+    const authDir = path.join(__dirname, '..', '..', '.wwebjs_auth', `session-${sessionId}`);
+    if (fs.existsSync(authDir)) {
+        fs.rmSync(authDir, { recursive: true, force: true });
+        console.log(`[Session ${sessionId}] Cleared auth data for relink`);
+    }
+
+    sessionDb.updateStatus(sessionId, 'initializing');
+
+    // Re-create — will trigger a fresh QR since auth is cleared
+    createClient(sessionId, dbSession.name);
+}
+
 async function getWhatsAppContacts(sessionId) {
     const client = clients.get(sessionId);
     if (!client) throw new Error('Session not found or not connected');
@@ -208,7 +240,16 @@ function onMessage(handler) {
     _messageHandlers.push(handler);
 }
 
+function onVote(handler) {
+    // Attach vote handler to all current and future clients
+    for (const [sid, client] of clients) {
+        client.on('vote_update', (vote) => handler(sid, vote));
+    }
+    _voteHandlers.push(handler);
+}
+
 const _messageHandlers = [];
+const _voteHandlers = [];
 
 // Monkey-patch: wrap so each new client gets existing handlers
 (function patchCreateClient() {
@@ -218,6 +259,9 @@ const _messageHandlers = [];
         for (const h of _messageHandlers) {
             client.on('message', (msg) => h(id, msg));
         }
+        for (const h of _voteHandlers) {
+            client.on('vote_update', (vote) => h(id, vote));
+        }
     };
 })();
 
@@ -226,10 +270,12 @@ module.exports = {
     addSession,
     removeSession,
     restartSession,
+    relinkSession,
     getClient,
     listSessions,
     getSessionState,
     setAutoReply,
     getWhatsAppContacts,
     onMessage,
+    onVote,
 };

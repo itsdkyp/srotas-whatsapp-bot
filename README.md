@@ -4,7 +4,34 @@ A full-stack WhatsApp automation tool with a modern dark-themed web dashboard. S
 
 ---
 
-## ⚡ Quick Start
+## 🚀 One-Command Installation (Easiest)
+
+Install on a fresh machine with a single command:
+
+**Linux / macOS:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/whatsapp-bot/main/install.sh | bash
+```
+
+**Windows (PowerShell as Administrator):**
+```powershell
+iex ((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/YOUR_USERNAME/whatsapp-bot/main/install.ps1'))
+```
+
+The installer will:
+- ✅ Check prerequisites (Git, Docker, Docker Compose)
+- ✅ Clone the repository
+- ✅ Setup configuration
+- ✅ Start Docker containers
+- ✅ Show you the URL to access
+
+**See [INSTALL.md](INSTALL.md) for detailed installation options and troubleshooting.**
+
+---
+
+## ⚡ Quick Start (Manual)
+
+### Option 1: Using Node.js (Local)
 
 ```bash
 # 1. Install dependencies
@@ -20,6 +47,51 @@ npm start
 # 4. Open the dashboard
 open http://localhost:3000
 ```
+
+### Option 2: Using Docker (Recommended for Production)
+
+**Simple Setup (access via localhost:3000):**
+```bash
+# 1. Create .env file with your API keys
+cp .env.example .env
+# Edit .env to add your Gemini/OpenAI API key
+
+# 2. Build and start the container
+docker-compose up -d
+
+# 3. Open the dashboard
+open http://localhost:3000
+
+# 4. View logs (optional)
+docker-compose logs -f
+
+# 5. Stop the container
+docker-compose down
+```
+
+**Advanced Setup with Custom Domain (access via whatsapp-bot.local):**
+```bash
+# Automated setup script (macOS/Linux only)
+./setup-local-domain.sh
+
+# Or manual setup:
+# 1. Add to /etc/hosts
+echo "127.0.0.1       whatsapp-bot.local" | sudo tee -a /etc/hosts
+
+# 2. Start with nginx reverse proxy
+docker-compose -f docker-compose.nginx.yml up -d
+
+# 3. Open the dashboard
+open http://whatsapp-bot.local
+```
+
+See [SETUP_LOCAL_DOMAIN.md](SETUP_LOCAL_DOMAIN.md) for detailed instructions and other options.
+
+**✅ Data Persistence with Docker:**
+- All data (database, WhatsApp sessions, uploads) is stored in Docker volumes
+- Data **survives container restarts and recreations**
+- To completely remove data: `docker-compose down -v` (⚠️ warning: deletes all data)
+- To backup data: `docker run --rm -v whatsapp-bot_whatsapp-data:/data -v $(pwd):/backup alpine tar czf /backup/backup.tar.gz /data`
 
 ---
 
@@ -239,6 +311,204 @@ whatsapp-bot/
 |---|---|---|
 | `GET` | `/api/settings` | Get all settings |
 | `PUT` | `/api/settings` | Update settings |
+
+---
+
+## 🐳 Docker Deployment Guide
+
+### Quick Start with Docker
+
+```bash
+# 1. Clone the repository
+git clone <your-repo-url>
+cd whatsapp-bot
+
+# 2. Create environment file
+cp .env.example .env
+# Edit .env and add your API keys
+
+# 3. Start with docker-compose
+docker-compose up -d
+
+# 4. Access the dashboard
+# Open http://localhost:3000 in your browser
+```
+
+### Docker Commands
+
+```bash
+# Start containers
+docker-compose up -d
+
+# Stop containers (data persists)
+docker-compose down
+
+# View logs
+docker-compose logs -f
+
+# Restart containers
+docker-compose restart
+
+# Rebuild after code changes
+docker-compose up -d --build
+
+# Stop and remove ALL data (⚠️ Warning: deletes everything)
+docker-compose down -v
+```
+
+### Data Persistence
+
+**Docker volumes ensure data survives:**
+- ✅ Container restarts (`docker-compose restart`)
+- ✅ Container recreations (`docker-compose down && docker-compose up`)
+- ✅ Server/host reboots (if `restart: unless-stopped` is set)
+- ✅ Docker updates
+
+**Volumes created:**
+- `whatsapp-data` → SQLite database (contacts, campaigns, settings)
+- `whatsapp-uploads` → Uploaded media files
+- `whatsapp-auth` → WhatsApp session authentication
+- `whatsapp-cache` → WhatsApp cache files
+
+**List volumes:**
+```bash
+docker volume ls | grep whatsapp
+```
+
+**Inspect a volume:**
+```bash
+docker volume inspect whatsapp-bot_whatsapp-data
+```
+
+### Backup & Restore
+
+**Backup all data:**
+```bash
+# Create backup of all volumes
+docker run --rm \
+  -v whatsapp-bot_whatsapp-data:/data \
+  -v whatsapp-bot_whatsapp-uploads:/uploads \
+  -v whatsapp-bot_whatsapp-auth:/auth \
+  -v whatsapp-bot_whatsapp-cache:/cache \
+  -v $(pwd):/backup \
+  alpine tar czf /backup/whatsapp-backup-$(date +%Y%m%d).tar.gz /data /uploads /auth /cache
+```
+
+**Restore from backup:**
+```bash
+# Stop the application
+docker-compose down
+
+# Restore volumes from backup
+docker run --rm \
+  -v whatsapp-bot_whatsapp-data:/data \
+  -v whatsapp-bot_whatsapp-uploads:/uploads \
+  -v whatsapp-bot_whatsapp-auth:/auth \
+  -v whatsapp-bot_whatsapp-cache:/cache \
+  -v $(pwd):/backup \
+  alpine tar xzf /backup/whatsapp-backup-YYYYMMDD.tar.gz
+
+# Start the application
+docker-compose up -d
+```
+
+### Environment Variables in Docker
+
+Edit `.env` file before starting:
+
+```env
+# Server
+PORT=3000
+
+# AI Configuration
+AI_PROVIDER=gemini
+GEMINI_API_KEY=your_gemini_key_here
+OPENAI_API_KEY=your_openai_key_here
+
+# Auto-Reply
+AUTO_REPLY_ENABLED=true
+SYSTEM_PROMPT=You are a helpful assistant.
+
+# Message Delays (milliseconds)
+MIN_DELAY_MS=8000
+MAX_DELAY_MS=18000
+```
+
+### Production Deployment Tips
+
+**1. Use a reverse proxy (nginx/traefik):**
+```yaml
+# Example nginx config
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+```
+
+**2. Enable HTTPS:**
+```bash
+# Use Let's Encrypt with certbot
+sudo certbot --nginx -d your-domain.com
+```
+
+**3. Monitor container health:**
+```bash
+# Check container status
+docker-compose ps
+
+# Check health status
+docker inspect whatsapp-bot | grep -A 10 Health
+```
+
+**4. Set up automatic backups:**
+```bash
+# Add to crontab (daily backup at 2 AM)
+0 2 * * * cd /path/to/whatsapp-bot && docker-compose exec -T whatsapp-bot tar czf - /app/data /app/uploads /app/.wwebjs_auth > backup-$(date +\%Y\%m\%d).tar.gz
+```
+
+### Troubleshooting
+
+**Container won't start:**
+```bash
+# Check logs
+docker-compose logs
+
+# Check if port 3000 is already in use
+lsof -i :3000
+```
+
+**Data not persisting:**
+```bash
+# Verify volumes are mounted
+docker inspect whatsapp-bot | grep -A 20 Mounts
+
+# Check volume exists
+docker volume ls | grep whatsapp
+```
+
+**Out of disk space:**
+```bash
+# Check Docker disk usage
+docker system df
+
+# Clean up unused resources
+docker system prune -a
+```
+
+**Permissions issues:**
+```bash
+# Fix volume permissions
+docker-compose exec whatsapp-bot chown -R node:node /app/data /app/uploads /app/.wwebjs_auth
+```
 
 ---
 
