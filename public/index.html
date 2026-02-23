@@ -12,7 +12,30 @@
 </head>
 
 <body>
-  <div class="app">
+  <!-- Activation Overlay (Hidden by default, shown via JS if not activated) -->
+  <div id="activationOverlay"
+    style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:var(--bg-card); z-index:9999; display:flex; align-items:center; justify-content:center;">
+    <div
+      style="background:var(--bg-input); padding:40px; border-radius:12px; width:100%; max-width:400px; text-align:center; box-shadow:0 10px 30px rgba(0,0,0,0.5); border:1px solid var(--border-color);">
+      <div style="font-size:48px; margin-bottom:16px;">💬</div>
+      <h2 style="margin-bottom:8px; color:var(--text-primary);">Activate Srotas.bot</h2>
+      <p style="color:var(--text-secondary); margin-bottom:24px; font-size:14px;">Please enter your product activation
+        key to continue.</p>
+
+      <div class="form-group" style="text-align:left;">
+        <label>Activation Key</label>
+        <input type="text" id="activationKeyInput" class="text-input" placeholder="XXXX-XXXX-XXXX-XXXX"
+          style="letter-spacing:2px; font-family:monospace; text-align:center;" />
+        <div id="activationError" style="color:var(--danger); font-size:12px; margin-top:8px; display:none;"></div>
+      </div>
+
+      <button class="btn btn-primary btn-lg" id="activateBtn" style="width:100%; margin-top:16px;">
+        Activate License
+      </button>
+    </div>
+  </div>
+
+  <div class="app" id="mainAppContainer" style="display:none;">
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-header">
@@ -65,7 +88,8 @@
           <span class="status-label">Srotas.bot</span>
         </div>
         <div class="designer-credit">
-          Designed by <a href="https://srotas.tech" target="_blank" rel="noopener noreferrer">SROTAS<span class="tech-blue">.TECH</span></a>
+          Designed by <a href="https://srotas.tech" target="_blank" rel="noopener noreferrer">SROTAS<span
+              class="tech-blue">.TECH</span></a>
         </div>
       </div>
     </aside>
@@ -261,7 +285,11 @@
             <button class="btn btn-primary btn-sm" id="groupFromSelectedBtn" style="display:none;">📂 Group from
               Selected</button>
           </div>
-          <span class="contact-count" id="contactCount">0 contacts</span>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="contact-count" id="contactCount">0 contacts</span>
+            <button class="btn btn-secondary btn-sm" id="exportContactsBtn" title="Export contacts as CSV">📄 Export
+              CSV</button>
+          </div>
         </div>
         <div class="table-container">
           <table class="data-table" id="contactsTable">
@@ -343,14 +371,16 @@
                 </div>
                 <div class="media-file-list" id="tmplMediaFileList"></div>
                 <div class="media-add-more" id="tmplMediaAddMore" style="display:none;">
-                  <button class="btn btn-secondary btn-sm" onclick="document.getElementById('tmplMediaFile').click()">+ Add More Files</button>
+                  <button class="btn btn-secondary btn-sm" onclick="document.getElementById('tmplMediaFile').click()">+
+                    Add More Files</button>
                 </div>
               </div>
             </div>
             <div class="form-group">
               <label>Clickable Buttons (optional)</label>
               <div id="tmplButtonsList" class="buttons-list"></div>
-              <button class="btn btn-secondary btn-sm" id="tmplAddButton" style="margin-top:8px;">+ Add Button (max 3)</button>
+              <button class="btn btn-secondary btn-sm" id="tmplAddButton" style="margin-top:8px;">+ Add Button (max
+                3)</button>
             </div>
             <button class="btn btn-success btn-lg" id="saveTemplateBtn">💾 Save Template</button>
           </div>
@@ -463,13 +493,16 @@
             </div>
             <div class="help-content">
               <h4>1. Connect Your WhatsApp Account</h4>
-              <p>Go to <strong>Sessions</strong> → Click <strong>+ Add Account</strong> → Scan the QR code with WhatsApp (Linked Devices).</p>
+              <p>Go to <strong>Sessions</strong> → Click <strong>+ Add Account</strong> → Scan the QR code with WhatsApp
+                (Linked Devices).</p>
 
               <h4>2. Import Your Contacts</h4>
-              <p>Go to <strong>Contacts</strong> → Click <strong>📁 Import CSV</strong> → Upload your contacts file. Use the sample CSV below as a template.</p>
+              <p>Go to <strong>Contacts</strong> → Click <strong>📁 Import CSV</strong> → Upload your contacts file. Use
+                the sample CSV below as a template.</p>
 
               <h4>3. Create Your First Campaign</h4>
-              <p>Go to <strong>Campaigns</strong> → Click <strong>+ New Campaign</strong> → Write your message with placeholders like {{name}} → Click <strong>🚀 Send Now</strong>.</p>
+              <p>Go to <strong>Campaigns</strong> → Click <strong>+ New Campaign</strong> → Write your message with
+                placeholders like {{name}} → Click <strong>🚀 Send Now</strong>.</p>
             </div>
           </div>
 
@@ -490,7 +523,8 @@
                   <li><code>phone</code> — Required. WhatsApp number with country code (e.g., +919876543210)</li>
                   <li><code>name</code> — Contact's full name</li>
                   <li><code>company</code> — Company or organization name</li>
-                  <li><strong>Custom fields</strong> — Any extra column (email, city, product, etc.) becomes a custom field you can use in messages</li>
+                  <li><strong>Custom fields</strong> — Any extra column (email, city, product, etc.) becomes a custom
+                    field you can use in messages</li>
                 </ul>
               </div>
             </div>
@@ -513,10 +547,11 @@
               </ul>
 
               <h4>Example Message</h4>
-              <div style="margin-top:12px; padding:12px; background:var(--bg-input); border-radius:var(--radius-sm); font-family:monospace; font-size:13px;">
-                Hi {{name}}, <br/>
-                Thanks for choosing {{product}}! <br/>
-                We'll deliver to {{city}} soon. <br/>
+              <div
+                style="margin-top:12px; padding:12px; background:var(--bg-input); border-radius:var(--radius-sm); font-family:monospace; font-size:13px;">
+                Hi {{name}}, <br />
+                Thanks for choosing {{product}}! <br />
+                We'll deliver to {{city}} soon. <br />
                 - {{company}}
               </div>
 
@@ -546,8 +581,10 @@
                 <li>Enter auto-reply content (what to send when clicked)</li>
                 <li>When recipients tap a button, they see a poll and the bot auto-sends your reply</li>
               </ol>
-              <div style="margin-top:12px; padding:12px; background:rgba(37, 211, 102, 0.1); border-left:3px solid var(--wa-green); border-radius:var(--radius-sm);">
-                <strong>💡 Tip:</strong> Buttons appear as a poll after your message. When a contact selects an option, the bot automatically sends the configured reply.
+              <div
+                style="margin-top:12px; padding:12px; background:rgba(37, 211, 102, 0.1); border-left:3px solid var(--wa-green); border-radius:var(--radius-sm);">
+                <strong>💡 Tip:</strong> Buttons appear as a poll after your message. When a contact selects an option,
+                the bot automatically sends the configured reply.
               </div>
             </div>
           </div>
@@ -569,8 +606,8 @@
                 <li>Toggle <strong>Enable</strong> when ready</li>
               </ol>
               <div style="margin-top:12px; padding:12px; background:var(--bg-input); border-radius:var(--radius-sm);">
-                <strong>Example:</strong><br/>
-                Trigger: <code>pricing</code><br/>
+                <strong>Example:</strong><br />
+                Trigger: <code>pricing</code><br />
                 Reply: <em>"Our Premium Plan is $99/month. Enterprise Plan is $299/month. Reply with your choice!"</em>
               </div>
             </div>
@@ -644,20 +681,26 @@
             </div>
             <div class="help-content">
               <h4>🛡️ Avoiding WhatsApp Bans (CRITICAL)</h4>
-              <div style="padding:12px; background:rgba(34,197,94,0.1); border-left:3px solid #22c55e; border-radius:4px; margin-bottom:16px;">
-                <p style="color:var(--text-primary); font-weight:600; margin-bottom:8px;">✓ Our defaults are optimized for the sweet spot: Fast delivery + Ban-proof!</p>
+              <div
+                style="padding:12px; background:rgba(34,197,94,0.1); border-left:3px solid #22c55e; border-radius:4px; margin-bottom:16px;">
+                <p style="color:var(--text-primary); font-weight:600; margin-bottom:8px;">✓ Our defaults are optimized
+                  for the sweet spot: Fast delivery + Ban-proof!</p>
                 <ul style="padding-left:20px; color:var(--text-secondary); line-height:1.8; margin:0;">
-                  <li><strong>Use 8-18 second delays</strong> (default settings) — Perfect balance of speed & safety</li>
+                  <li><strong>Use 8-18 second delays</strong> (default settings) — Perfect balance of speed & safety
+                  </li>
                   <li><strong>Limit: 50-100 messages per day</strong> per account for safety</li>
                   <li><strong>Warm up new accounts</strong> — start with 10-20 messages/day for the first week</li>
                   <li><strong>Randomization is automatic</strong> — system picks random delay between min & max</li>
                   <li><strong>Avoid sending after 10 PM</strong> or before 9 AM local time</li>
-                  <li><strong>Never send identical messages</strong> — use placeholders to personalize ({{name}}, {{company}})</li>
+                  <li><strong>Never send identical messages</strong> — use placeholders to personalize ({{name}},
+                    {{company}})</li>
                 </ul>
               </div>
 
-              <div style="padding:12px; background:rgba(59,130,246,0.1); border-left:3px solid #3b82f6; border-radius:4px; margin-bottom:16px;">
-                <p style="color:var(--text-primary); font-weight:600; margin-bottom:4px;">⚡ Campaign Speed Estimates:</p>
+              <div
+                style="padding:12px; background:rgba(59,130,246,0.1); border-left:3px solid #3b82f6; border-radius:4px; margin-bottom:16px;">
+                <p style="color:var(--text-primary); font-weight:600; margin-bottom:4px;">⚡ Campaign Speed Estimates:
+                </p>
                 <ul style="padding-left:20px; color:var(--text-secondary); line-height:1.8; margin:0; font-size:13px;">
                   <li>50 messages ≈ <strong>11 minutes</strong></li>
                   <li>100 messages ≈ <strong>22 minutes</strong></li>
@@ -702,7 +745,8 @@
             </div>
             <div class="help-content">
               <h4>Session shows "Disconnected" or "Error"</h4>
-              <p style="color:var(--text-secondary);">Click <strong>🔗 Relink</strong> to clear auth and scan a fresh QR code.</p>
+              <p style="color:var(--text-secondary);">Click <strong>🔗 Relink</strong> to clear auth and scan a fresh QR
+                code.</p>
 
               <h4 style="margin-top:12px;">Messages not sending</h4>
               <ul style="padding-left:20px; color:var(--text-secondary); line-height:1.8;">
@@ -719,7 +763,8 @@
               </ul>
 
               <h4 style="margin-top:12px;">Buttons showing as text</h4>
-              <p style="color:var(--text-secondary);">This is normal — WhatsApp native buttons are deprecated. Buttons appear as polls (clickable options) after your message.</p>
+              <p style="color:var(--text-secondary);">This is normal — WhatsApp native buttons are deprecated. Buttons
+                appear as polls (clickable options) after your message.</p>
             </div>
           </div>
         </div>
@@ -836,18 +881,52 @@
         <button class="modal-close" id="syncWAModalClose">&times;</button>
       </div>
       <div class="modal-body">
-        <div class="form-row">
-          <div class="form-group half">
-            <label>From Session</label>
-            <select id="syncWASession" class="select-input"></select>
-          </div>
-          <div class="form-group half">
-            <label>Import to Group</label>
-            <select id="syncWAGroup" class="select-input"></select>
-          </div>
+        <!-- Tabs -->
+        <div class="filter-tabs" style="margin-bottom:20px;">
+          <button class="filter-tab active" onclick="switchSyncTab('personal', this)">📲 Personal Contacts</button>
+          <button class="filter-tab" onclick="switchSyncTab('groups', this)">👥 Group Members</button>
         </div>
-        <button class="btn btn-primary" id="startSyncBtn">📲 Fetch Contacts</button>
-        <div id="syncResult" style="margin-top:16px;"></div>
+
+        <!-- Personal Contacts Tab -->
+        <div id="syncTabPersonal">
+          <div class="form-row">
+            <div class="form-group half">
+              <label>From Session</label>
+              <select id="syncWASession" class="select-input"></select>
+            </div>
+            <div class="form-group half">
+              <label>Import to Group</label>
+              <select id="syncWAGroup" class="select-input"></select>
+            </div>
+          </div>
+          <button class="btn btn-primary" id="startSyncBtn">📲 Fetch Contacts</button>
+          <div id="syncResult" style="margin-top:16px;"></div>
+        </div>
+
+        <!-- Group Members Tab -->
+        <div id="syncTabGroups" style="display:none;">
+          <div class="form-row">
+            <div class="form-group half">
+              <label>From Session</label>
+              <select id="grabSession" class="select-input"></select>
+            </div>
+            <div class="form-group half">
+              <label>Import to Group</label>
+              <select id="grabImportGroup" class="select-input"></select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Select WhatsApp Group</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <select id="grabWAGroup" class="select-input" style="flex:1;">
+                <option value="">— Click "Load Groups" first —</option>
+              </select>
+              <button class="btn btn-secondary btn-sm" id="loadWAGroupsBtn">🔄 Load Groups</button>
+            </div>
+          </div>
+          <button class="btn btn-primary" id="startGrabBtn">👥 Grab Members</button>
+          <div id="grabResult" style="margin-top:16px;"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -924,7 +1003,8 @@
             <select id="campTemplateSelector" class="select-input">
               <option value="">— Write from scratch —</option>
             </select>
-            <button class="btn btn-secondary btn-sm" onclick="deleteSelectedTemplate()" id="deleteTemplateBtn" style="display:none;" title="Delete template">🗑️</button>
+            <button class="btn btn-secondary btn-sm" onclick="deleteSelectedTemplate()" id="deleteTemplateBtn"
+              style="display:none;" title="Delete template">🗑️</button>
           </div>
         </div>
 
@@ -944,17 +1024,19 @@
         <div class="form-group">
           <label>📎 Attachments (optional — up to 10 files)</label>
           <div class="media-upload-area" id="mediaUploadArea">
-            <input type="file" id="campMediaFile" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx"
-              multiple style="display:none;" />
+            <input type="file" id="campMediaFile" accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx" multiple
+              style="display:none;" />
             <div class="media-upload-prompt" id="mediaUploadPrompt"
               onclick="document.getElementById('campMediaFile').click()">
               <span style="font-size:24px;">📁</span>
               <span>Click to attach images, documents, or audio</span>
-              <span style="font-size:11px; color:var(--text-muted);">Supports: JPG, PNG, PDF, DOC, MP3, MP4 (max 10 files)</span>
+              <span style="font-size:11px; color:var(--text-muted);">Supports: JPG, PNG, PDF, DOC, MP3, MP4 (max 10
+                files)</span>
             </div>
             <div class="media-file-list" id="mediaFileList"></div>
             <div class="media-add-more" id="mediaAddMore" style="display:none;">
-              <button class="btn btn-secondary btn-sm" onclick="document.getElementById('campMediaFile').click()">+ Add More Files</button>
+              <button class="btn btn-secondary btn-sm" onclick="document.getElementById('campMediaFile').click()">+ Add
+                More Files</button>
             </div>
           </div>
         </div>
@@ -970,7 +1052,8 @@
           <label>Clickable Buttons (Optional)</label>
           <div id="campaignButtonsArea">
             <p style="font-size:12px; color:var(--text-secondary); margin-bottom:8px;">
-              Add clickable buttons sent as a poll after your message. When a recipient taps an option, the bot auto-sends the reply content.
+              Add clickable buttons sent as a poll after your message. When a recipient taps an option, the bot
+              auto-sends the reply content.
             </p>
             <div class="buttons-list" id="campaignButtonsList"></div>
             <button class="btn btn-secondary btn-sm" id="addCampaignButton" style="margin-top:8px;">
@@ -981,7 +1064,8 @@
 
         <div class="form-group">
           <label>Message Delays (Sweet Spot: Fast & Ban-Proof)</label>
-          <p style="font-size:12px; color:var(--text-secondary); margin-bottom:12px; padding:10px; background:rgba(34,197,94,0.1); border-left:3px solid #22c55e; border-radius:4px;">
+          <p
+            style="font-size:12px; color:var(--text-secondary); margin-bottom:12px; padding:10px; background:rgba(34,197,94,0.1); border-left:3px solid #22c55e; border-radius:4px;">
             ✓ <strong>Optimized:</strong> 8-18 sec delays = Fast delivery + WhatsApp safe. Avg: 13 sec/msg.
           </p>
           <div class="form-row">

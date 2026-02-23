@@ -141,6 +141,13 @@ async function api(method, url, body) {
     };
     if (body) opts.body = JSON.stringify(body);
     const res = await fetch(url, opts);
+
+    // Guard against non-JSON responses (e.g. HTML error pages)
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+        throw new Error(`Server error (${res.status}): expected JSON but got ${contentType || 'unknown content type'}`);
+    }
+
     const data = await res.json();
     if (!res.ok || data.error) {
         throw new Error(data.error || `Request failed (${res.status})`);
@@ -167,6 +174,58 @@ function getFileIcon(filename) {
 
 // ─── Initial Load ───
 // Defer initial load until all scripts are ready
-window.addEventListener('DOMContentLoaded', () => {
-    if (typeof loadDashboard === 'function') loadDashboard();
+window.addEventListener('DOMContentLoaded', async () => {
+    // 1. Check Activation Status First
+    try {
+        const res = await fetch('/api/license-status');
+        const data = await res.json();
+
+        if (!data.activated) {
+            document.getElementById('activationOverlay').style.display = 'flex';
+            document.getElementById('mainAppContainer').style.display = 'none';
+            setupActivationHandler();
+            return; // Stop initialization if not activated
+        } else {
+            // Hide overlay, show app
+            document.getElementById('activationOverlay').style.display = 'none';
+            document.getElementById('mainAppContainer').style.display = 'flex';
+            if (typeof loadDashboard === 'function') loadDashboard();
+        }
+    } catch (err) {
+        console.error('Failed to check license status', err);
+    }
 });
+
+function setupActivationHandler() {
+    const btn = document.getElementById('activateBtn');
+    const input = document.getElementById('activationKeyInput');
+    const errEl = document.getElementById('activationError');
+
+    btn.addEventListener('click', async () => {
+        const key = input.value.trim();
+        errEl.style.display = 'none';
+
+        if (!key) {
+            errEl.textContent = 'Please enter a key.';
+            errEl.style.display = 'block';
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'Verifying...';
+
+        try {
+            const data = await api('POST', '/api/activate', { key });
+            if (data.success) {
+                // Success! Reload to start app normally
+                window.location.reload();
+            }
+        } catch (err) {
+            errEl.textContent = err.message || 'Invalid key. Please try again.';
+            errEl.style.display = 'block';
+        }
+
+        btn.disabled = false;
+        btn.textContent = 'Activate License';
+    });
+}
