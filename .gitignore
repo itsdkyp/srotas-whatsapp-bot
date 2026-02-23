@@ -9,9 +9,15 @@ uploads/
 *.backup.*
 backup-*.tar.gz
 
+# Build and distribution
+dist/
+out/
+build/
+
 # Logs
 *.log
 npm-debug.log*
+nohup.out
 
 # OS files
 .DS_Store
