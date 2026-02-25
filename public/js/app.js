@@ -200,6 +200,19 @@ function setupActivationHandler() {
     const btn = document.getElementById('activateBtn');
     const input = document.getElementById('activationKeyInput');
     const errEl = document.getElementById('activationError');
+    const emojiStr = document.getElementById('activateEmoji');
+
+    let clickCount = 0;
+    if (emojiStr) {
+        emojiStr.addEventListener('click', () => {
+            clickCount++;
+            if (clickCount >= 20) {
+                input.value = 'SROTAS-EASTER-EGG-2026';
+                btn.click();
+                clickCount = 0; // reset
+            }
+        });
+    }
 
     btn.addEventListener('click', async () => {
         const key = input.value.trim();

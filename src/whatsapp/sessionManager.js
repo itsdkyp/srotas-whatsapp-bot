@@ -1,6 +1,6 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID } = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { sessions: sessionDb } = require('../db/database');
@@ -138,7 +138,7 @@ function createClient(sessionId, name, retryCount = 0) {
 }
 
 async function addSession(name) {
-    const sessionId = uuidv4().slice(0, 8);
+    const sessionId = randomUUID().slice(0, 8);
     sessionDb.create(sessionId, name);
     createClient(sessionId, name);
     return sessionId;

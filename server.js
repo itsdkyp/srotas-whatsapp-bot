@@ -1028,5 +1028,7 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`\n🤖 Srotas.bot Dashboard running at http://localhost:${PORT}\n`);
+    const actualPort = server.address().port;
+    console.log(`SERVER_PORT=${actualPort}`);
+    console.log(`\n🤖 Srotas.bot Dashboard running at http://localhost:${actualPort}\n`);
 });
