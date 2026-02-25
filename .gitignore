@@ -10,9 +10,17 @@ uploads/
 backup-*.tar.gz
 
 # Build and distribution
-dist/
 out/
 build/
+
+# npm pack output
+*.tgz
+
+# Electron builder output
+dist/
+!dist/*.exe
+!dist/*.dmg
+!dist/*.blockmap
 
 # Logs
 *.log
