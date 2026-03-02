@@ -1,6 +1,6 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID } = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { sessions: sessionDb } = require('../db/database');
@@ -27,7 +27,9 @@ function init(socketIO) {
  * Kill any stale Puppeteer SingletonLock for a session so re-init can proceed.
  */
 function cleanStaleLocks(sessionId) {
-    const authDir = path.join(__dirname, '..', '..', '.wwebjs_auth', `session-${sessionId}`);
+    const authDir = process.env.APP_USER_DATA_PATH
+        ? path.join(process.env.APP_USER_DATA_PATH, '.wwebjs_auth', `session-${sessionId}`)
+        : path.join(__dirname, '..', '..', '.wwebjs_auth', `session-${sessionId}`);
     if (!fs.existsSync(authDir)) return;
 
     const lockFiles = ['SingletonLock', 'SingletonSocket', 'SingletonCookie'];
@@ -48,9 +50,31 @@ function createClient(sessionId, name, retryCount = 0) {
     // Clean stale locks before (re)initializing
     cleanStaleLocks(sessionId);
 
+    let executablePath = undefined;
+
+    // When packaged in Electron on Windows, puppeteer might struggle to find Chrome.
+    // We try to find a local installation.
+    if (process.env.ELECTRON_RUN_AS_NODE) {
+        try {
+            const chromePaths = require('chrome-paths');
+            executablePath = chromePaths.chrome || chromePaths.chromium;
+            console.log(`[Session ${sessionId}] Running in Electron, setting Chrome path to: ${executablePath}`);
+        } catch (err) {
+            console.warn(`[Session ${sessionId}] Could not resolve Chrome path automatically in Electron.`);
+        }
+    }
+
+    const authStrategy = new LocalAuth({
+        clientId: sessionId,
+        dataPath: process.env.APP_USER_DATA_PATH
+            ? path.join(process.env.APP_USER_DATA_PATH, '.wwebjs_auth')
+            : undefined
+    });
+
     const client = new Client({
-        authStrategy: new LocalAuth({ clientId: sessionId }),
+        authStrategy,
         puppeteer: {
+            executablePath,
             headless: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
         },
@@ -114,7 +138,7 @@ function createClient(sessionId, name, retryCount = 0) {
 }
 
 async function addSession(name) {
-    const sessionId = uuidv4().slice(0, 8);
+    const sessionId = randomUUID().slice(0, 8);
     sessionDb.create(sessionId, name);
     createClient(sessionId, name);
     return sessionId;
@@ -181,7 +205,9 @@ async function relinkSession(sessionId) {
     sessionStates.delete(sessionId);
 
     // Clear stored auth data so a fresh QR is generated
-    const authDir = path.join(__dirname, '..', '..', '.wwebjs_auth', `session-${sessionId}`);
+    const authDir = process.env.APP_USER_DATA_PATH
+        ? path.join(process.env.APP_USER_DATA_PATH, '.wwebjs_auth', `session-${sessionId}`)
+        : path.join(__dirname, '..', '..', '.wwebjs_auth', `session-${sessionId}`);
     if (fs.existsSync(authDir)) {
         fs.rmSync(authDir, { recursive: true, force: true });
         console.log(`[Session ${sessionId}] Cleared auth data for relink`);
@@ -205,6 +231,57 @@ async function getWhatsAppContacts(sessionId) {
             name: c.name || c.pushname || '',
             company: '',
         }));
+}
+
+async function getWhatsAppGroups(sessionId) {
+    const client = clients.get(sessionId);
+    if (!client) throw new Error('Session not found or not connected');
+
+    const chats = await client.getChats();
+    return chats
+        .filter(c => c.isGroup)
+        .map(c => ({
+            id: c.id._serialized,
+            name: c.name,
+            participantCount: c.participants ? c.participants.length : 0,
+        }));
+}
+
+async function getGroupParticipants(sessionId, groupId) {
+    const client = clients.get(sessionId);
+    if (!client) throw new Error('Session not found or not connected');
+
+    const chat = await client.getChatById(groupId);
+    if (!chat || !chat.isGroup) throw new Error('Group not found');
+
+    const participants = chat.participants || [];
+    const contacts = [];
+
+    for (const p of participants) {
+        try {
+            const contact = await client.getContactById(p.id._serialized);
+            if (contact && p.id.server === 'c.us') {
+                // Prioritize: pushname (their WA display name) > saved name > shortName > phone number
+                const name = contact.pushname || contact.name || contact.shortName || p.id.user || '';
+                contacts.push({
+                    phone: p.id.user,
+                    name,
+                    company: '',
+                });
+            }
+        } catch (e) {
+            // If we can't get contact details, use basic info
+            if (p.id.server === 'c.us') {
+                contacts.push({
+                    phone: p.id.user,
+                    name: p.id.user,
+                    company: '',
+                });
+            }
+        }
+    }
+
+    return contacts;
 }
 
 function getClient(sessionId) {
@@ -276,6 +353,8 @@ module.exports = {
     getSessionState,
     setAutoReply,
     getWhatsAppContacts,
+    getWhatsAppGroups,
+    getGroupParticipants,
     onMessage,
     onVote,
 };

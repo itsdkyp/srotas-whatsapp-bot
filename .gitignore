@@ -9,9 +9,23 @@ uploads/
 *.backup.*
 backup-*.tar.gz
 
+# Build and distribution
+out/
+build/
+
+# npm pack output
+*.tgz
+
+# Electron builder output
+dist/
+!dist/*.exe
+!dist/*.dmg
+!dist/*.blockmap
+
 # Logs
 *.log
 npm-debug.log*
+nohup.out
 
 # OS files
 .DS_Store

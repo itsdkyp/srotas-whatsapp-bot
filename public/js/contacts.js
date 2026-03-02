@@ -133,6 +133,36 @@ groupFilter.addEventListener('change', () => {
     loadContacts();
 });
 
+// ─── Export Contacts CSV ───
+
+document.getElementById('exportContactsBtn').addEventListener('click', async () => {
+    try {
+        const group = groupFilter.value;
+        const url = group ? `/api/contacts?group=${encodeURIComponent(group)}` : '/api/contacts';
+        const contacts = await api('GET', url);
+        if (!contacts.length) return toast('No contacts to export', 'error');
+
+        const rows = [['phone', 'name', 'company']];
+        for (const c of contacts) {
+            rows.push([
+                c.phone || '',
+                (c.name || '').replace(/"/g, '""'),
+                (c.company || '').replace(/"/g, '""'),
+            ]);
+        }
+        const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `contacts_${group || 'all'}_${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        toast(`Exported ${contacts.length} contacts as CSV`, 'success');
+    } catch (err) {
+        toast('Export failed: ' + (err.message || err), 'error');
+    }
+});
+
 function debounce(fn, delay) {
     let timer;
     return (...args) => {
@@ -275,21 +305,42 @@ saveContactBtn.addEventListener('click', async () => {
 
 syncWAContactsBtn.addEventListener('click', async () => {
     syncResult.innerHTML = '';
+    grabResult.innerHTML = '';
     const sessions = await api('GET', '/api/sessions');
     const connected = sessions.filter(s => s.status === 'ready');
-    syncWASession.innerHTML = connected.length
+    const sessionOptions = connected.length
         ? connected.map(s => `<option value="${s.id}">${escapeHtml(s.name)} (+${s.phone || '?'})</option>`).join('')
         : '<option value="">No connected sessions</option>';
 
+    syncWASession.innerHTML = sessionOptions;
+    grabSession.innerHTML = sessionOptions;
+
     const groups = await api('GET', '/api/groups');
-    syncWAGroup.innerHTML = groups.map(g =>
+    const groupOptions = groups.map(g =>
         `<option value="${escapeHtml(g.name)}">${escapeHtml(g.name)}</option>`
     ).join('');
+
+    syncWAGroup.innerHTML = groupOptions;
+    grabImportGroup.innerHTML = groupOptions;
+
+    // Reset WA group dropdown
+    grabWAGroup.innerHTML = '<option value="">— Click "Load Groups" first —</option>';
 
     syncWAModal.classList.add('active');
 });
 
 syncWAModalClose.addEventListener('click', () => syncWAModal.classList.remove('active'));
+
+// ─── Tab Switcher ───
+
+function switchSyncTab(tab, btn) {
+    document.getElementById('syncTabPersonal').style.display = tab === 'personal' ? '' : 'none';
+    document.getElementById('syncTabGroups').style.display = tab === 'groups' ? '' : 'none';
+    btn.parentElement.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+}
+
+// ─── Personal Contacts Sync ───
 
 startSyncBtn.addEventListener('click', async () => {
     const sessionId = syncWASession.value;
@@ -318,6 +369,140 @@ startSyncBtn.addEventListener('click', async () => {
     startSyncBtn.disabled = false;
     startSyncBtn.textContent = '📲 Fetch Contacts';
 });
+
+// ═══════════════════════════════════════
+// WhatsApp Group Contact Grabber
+// ═══════════════════════════════════════
+
+const grabSession = document.getElementById('grabSession');
+const grabImportGroup = document.getElementById('grabImportGroup');
+const grabWAGroup = document.getElementById('grabWAGroup');
+const loadWAGroupsBtn = document.getElementById('loadWAGroupsBtn');
+const startGrabBtn = document.getElementById('startGrabBtn');
+const grabResult = document.getElementById('grabResult');
+
+loadWAGroupsBtn.addEventListener('click', async () => {
+    const sessionId = grabSession.value;
+    if (!sessionId) return toast('Select a connected session', 'error');
+
+    loadWAGroupsBtn.disabled = true;
+    loadWAGroupsBtn.textContent = '⏳ Loading...';
+    grabResult.innerHTML = '<p style="color:var(--text-secondary);">Fetching WhatsApp groups...</p>';
+
+    try {
+        const waGroups = await api('GET', `/api/contacts/wa-groups/${sessionId}`);
+        if (!waGroups.length) {
+            grabWAGroup.innerHTML = '<option value="">No groups found</option>';
+            grabResult.innerHTML = '<p style="color:var(--warning);">No WhatsApp groups found in this account.</p>';
+        } else {
+            grabWAGroup.innerHTML = waGroups.map(g =>
+                `<option value="${escapeHtml(g.id)}">${escapeHtml(g.name)} (${g.participantCount} members)</option>`
+            ).join('');
+            grabResult.innerHTML = `<p style="color:var(--success);">Found ${waGroups.length} groups. Select one and click "Grab Members".</p>`;
+        }
+    } catch (err) {
+        grabResult.innerHTML = `<p style="color:var(--danger);">❌ ${escapeHtml(err.message || 'Failed to load groups')}</p>`;
+    }
+
+    loadWAGroupsBtn.disabled = false;
+    loadWAGroupsBtn.textContent = '🔄 Load Groups';
+});
+
+let _grabbedContacts = []; // Store last grabbed contacts for export
+
+startGrabBtn.addEventListener('click', async () => {
+    const sessionId = grabSession.value;
+    const waGroupId = grabWAGroup.value;
+    const importGroup = grabImportGroup.value;
+
+    if (!sessionId) return toast('Select a connected session', 'error');
+    if (!waGroupId) return toast('Select a WhatsApp group', 'error');
+
+    startGrabBtn.disabled = true;
+    startGrabBtn.textContent = '⏳ Grabbing...';
+    grabResult.innerHTML = '<p style="color:var(--text-secondary);">Extracting members from group, please wait...</p>';
+
+    try {
+        const contacts = await api('GET', `/api/contacts/grab-group/${sessionId}/${encodeURIComponent(waGroupId)}`);
+
+        if (!contacts.length) {
+            grabResult.innerHTML = '<p style="color:var(--warning);">No contacts found in this group.</p>';
+        } else {
+            _grabbedContacts = contacts;
+            // Show preview + action buttons
+            const groupName = grabWAGroup.options[grabWAGroup.selectedIndex]?.text || 'Group';
+            grabResult.innerHTML = `
+                <div style="padding:16px; background:var(--bg-input); border-radius:var(--radius-sm); margin-top:8px;">
+                    <p style="color:var(--success); font-weight:600; margin-bottom:12px;">
+                        ✅ Found ${contacts.length} members in "${escapeHtml(groupName)}"
+                    </p>
+                    <div class="table-container table-scroll" style="max-height:200px; margin-bottom:12px;">
+                        <table class="data-table">
+                            <thead><tr><th>#</th><th>Phone</th><th>Name</th></tr></thead>
+                            <tbody>
+                                ${contacts.slice(0, 50).map((c, i) => `
+                                    <tr>
+                                        <td style="color:var(--text-muted);font-size:11px;">${i + 1}</td>
+                                        <td style="font-family:monospace;font-size:12px;">${escapeHtml(c.phone)}</td>
+                                        <td>${escapeHtml(c.name || '—')}</td>
+                                    </tr>
+                                `).join('')}
+                                ${contacts.length > 50 ? `<tr><td colspan="3" style="text-align:center;color:var(--text-muted);">...and ${contacts.length - 50} more</td></tr>` : ''}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button class="btn btn-success" onclick="importGrabbedContacts()">
+                            📥 Import ${contacts.length} to "${escapeHtml(importGroup)}"
+                        </button>
+                        <button class="btn btn-secondary" onclick="exportGrabbedCSV()">
+                            📄 Export CSV (edit & re-import)
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+    } catch (err) {
+        grabResult.innerHTML = `<p style="color:var(--danger);">❌ ${escapeHtml(err.message || 'Failed to grab contacts')}</p>`;
+    }
+
+    startGrabBtn.disabled = false;
+    startGrabBtn.textContent = '👥 Grab Members';
+});
+
+async function importGrabbedContacts() {
+    if (!_grabbedContacts.length) return;
+    const importGroup = grabImportGroup.value;
+    try {
+        await api('POST', '/api/contacts/import', { contacts: _grabbedContacts, group: importGroup });
+        toast(`Imported ${_grabbedContacts.length} contacts to "${importGroup}"`, 'success');
+        grabResult.innerHTML = `<p style="color:var(--success);">✅ Imported ${_grabbedContacts.length} members to "${escapeHtml(importGroup)}"</p>`;
+        loadContacts();
+    } catch (err) {
+        toast('Import failed: ' + (err.message || err), 'error');
+    }
+}
+
+function exportGrabbedCSV() {
+    if (!_grabbedContacts.length) return;
+    const rows = [['phone', 'name', 'company']];
+    for (const c of _grabbedContacts) {
+        rows.push([
+            c.phone || '',
+            (c.name || '').replace(/"/g, '""'),
+            (c.company || '').replace(/"/g, '""'),
+        ]);
+    }
+    const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `grabbed_contacts_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('CSV exported — edit and re-import via "Import CSV"', 'success');
+}
 
 // ═══════════════════════════════════════
 // Group Management

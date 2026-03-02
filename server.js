@@ -12,6 +12,7 @@ const messageHandler = require('./src/whatsapp/messageHandler');
 const bulkSender = require('./src/messaging/bulkSender');
 const scheduler = require('./src/messaging/scheduler');
 const importer = require('./src/contacts/importer');
+const license = require('./src/license');
 const { sessions: sessionsDb, contacts: contactsDb, groups: groupsDb, campaigns: campaignsDb, settings: settingsDb, messages: messagesDb, quickReplies: quickRepliesDb, templates: templatesDb } = require('./src/db/database');
 
 const app = express();
@@ -19,11 +20,13 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 // Middleware
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Upload directory
-const UPLOAD_DIR = path.join(__dirname, 'uploads');
+const UPLOAD_DIR = process.env.APP_USER_DATA_PATH
+    ? path.join(process.env.APP_USER_DATA_PATH, 'uploads')
+    : path.join(__dirname, 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const upload = multer({ dest: UPLOAD_DIR });
@@ -33,6 +36,34 @@ sessionManager.init(io);
 bulkSender.init(io);
 messageHandler.init();
 scheduler.init(io);
+
+// ═══════════════════════════════════════
+// API ROUTES — License & Activation
+// ═══════════════════════════════════════
+
+app.get('/api/license-status', (req, res) => {
+    res.json({ activated: license.isActivated() });
+});
+
+app.post('/api/activate', (req, res) => {
+    try {
+        const { key } = req.body;
+        if (!key) return res.status(400).json({ error: 'License key is required' });
+
+        const result = license.activate(key);
+        if (result.success) {
+            res.json({ success: true, message: 'Software activated successfully.' });
+        } else {
+            res.status(400).json({
+                error: result.reason === 'License expired'
+                    ? 'This license key has expired.'
+                    : 'Invalid license key. Please check and try again.'
+            });
+        }
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 // ═══════════════════════════════════════
 // API ROUTES — Sessions
@@ -205,10 +236,46 @@ app.post('/api/contacts/import', (req, res) => {
 
 app.get('/api/contacts/sync/:sessionId', async (req, res) => {
     try {
-        const contacts = await sessionManager.getWhatsAppContacts(req.params.sessionId);
+        const sessionId = req.params.sessionId;
+        const state = sessionManager.getSessionState(sessionId);
+        if (state.status !== 'ready') {
+            return res.status(400).json({ error: `Session is not ready (status: ${state.status}). Please ensure WhatsApp is connected.` });
+        }
+        const contacts = await sessionManager.getWhatsAppContacts(sessionId);
         res.json(contacts);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error('[Sync Contacts] Error:', err.message);
+        res.status(500).json({ error: err.message || 'Failed to sync WhatsApp contacts' });
+    }
+});
+
+app.get('/api/contacts/wa-groups/:sessionId', async (req, res) => {
+    try {
+        const sessionId = req.params.sessionId;
+        const state = sessionManager.getSessionState(sessionId);
+        if (state.status !== 'ready') {
+            return res.status(400).json({ error: `Session is not ready (status: ${state.status}). Please ensure WhatsApp is connected.` });
+        }
+        const groups = await sessionManager.getWhatsAppGroups(sessionId);
+        res.json(groups);
+    } catch (err) {
+        console.error('[WA Groups] Error:', err.message);
+        res.status(500).json({ error: err.message || 'Failed to fetch WhatsApp groups' });
+    }
+});
+
+app.get('/api/contacts/grab-group/:sessionId/:groupId', async (req, res) => {
+    try {
+        const { sessionId, groupId } = req.params;
+        const state = sessionManager.getSessionState(sessionId);
+        if (state.status !== 'ready') {
+            return res.status(400).json({ error: `Session is not ready (status: ${state.status}). Please ensure WhatsApp is connected.` });
+        }
+        const contacts = await sessionManager.getGroupParticipants(sessionId, groupId);
+        res.json(contacts);
+    } catch (err) {
+        console.error('[Grab Group] Error:', err.message);
+        res.status(500).json({ error: err.message || 'Failed to grab group contacts' });
     }
 });
 
@@ -393,14 +460,14 @@ app.post('/api/campaigns/:id/retry', async (req, res) => {
         // Parse buttons config from original campaign
         let retryButtons = null;
         if (campaign.buttons_config) {
-            try { retryButtons = JSON.parse(campaign.buttons_config); } catch (e) {}
+            try { retryButtons = JSON.parse(campaign.buttons_config); } catch (e) { }
         }
 
         res.json({ status: 'started', total: contacts.length });
         // Parse media paths from original campaign
         let retryMediaPaths = null;
         if (campaign.media_paths) {
-            try { retryMediaPaths = JSON.parse(campaign.media_paths); } catch (e) {}
+            try { retryMediaPaths = JSON.parse(campaign.media_paths); } catch (e) { }
         }
 
         bulkSender.sendBulk(sessionId, contacts, campaign.template, {
@@ -436,14 +503,14 @@ app.post('/api/campaigns/:id/restart', async (req, res) => {
         // Parse buttons config from original campaign
         let buttons = null;
         if (campaign.buttons_config) {
-            try { buttons = JSON.parse(campaign.buttons_config); } catch (e) {}
+            try { buttons = JSON.parse(campaign.buttons_config); } catch (e) { }
         }
 
         res.json({ status: 'started', total: contacts.length });
         // Parse media paths from original campaign
         let restartMediaPaths = null;
         if (campaign.media_paths) {
-            try { restartMediaPaths = JSON.parse(campaign.media_paths); } catch (e) {}
+            try { restartMediaPaths = JSON.parse(campaign.media_paths); } catch (e) { }
         }
 
         bulkSender.sendBulk(sessionId, contacts, campaign.template, {
@@ -465,7 +532,9 @@ app.post('/api/campaigns/:id/restart', async (req, res) => {
 // API ROUTES — Media Upload
 // ═══════════════════════════════════════
 
-const MEDIA_DIR = path.join(__dirname, 'uploads', 'media');
+const MEDIA_DIR = process.env.APP_USER_DATA_PATH
+    ? path.join(process.env.APP_USER_DATA_PATH, 'uploads', 'media')
+    : path.join(__dirname, 'uploads', 'media');
 if (!fs.existsSync(MEDIA_DIR)) fs.mkdirSync(MEDIA_DIR, { recursive: true });
 
 app.post('/api/media/upload', upload.array('media', 10), (req, res) => {
@@ -959,5 +1028,7 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`\n🤖 Srotas.bot Dashboard running at http://localhost:${PORT}\n`);
+    const actualPort = server.address().port;
+    console.log(`SERVER_PORT=${actualPort}`);
+    console.log(`\n🤖 Srotas.bot Dashboard running at http://localhost:${actualPort}\n`);
 });

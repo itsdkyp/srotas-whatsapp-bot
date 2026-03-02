@@ -1,6 +1,6 @@
 services:
   whatsapp-bot:
-    build: .
+    image: itsdkyp/whatsapp-bot:latest
     container_name: whatsapp-bot
     restart: unless-stopped
     ports:
