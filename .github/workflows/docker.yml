@@ -15,7 +15,7 @@ jobs:
   build:
     name: Build (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
-    environment: production
+    environment: docker-hub
 
     strategy:
       fail-fast: false
@@ -79,7 +79,7 @@ jobs:
   merge:
     name: Merge & Push Manifest
     runs-on: ubuntu-latest
-    environment: production
+    environment: docker-hub
     needs: build        # Waits for BOTH build jobs to complete
 
     steps:
