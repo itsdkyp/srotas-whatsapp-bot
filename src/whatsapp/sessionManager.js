@@ -76,7 +76,15 @@ function createClient(sessionId, name, retryCount = 0) {
         puppeteer: {
             executablePath,
             headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-gpu',
+                '--disable-dev-shm-usage',
+                '--no-zygote',                 // Prevents crashes in Docker post-QR-auth
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+            ],
         },
     });
 

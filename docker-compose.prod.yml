@@ -3,6 +3,7 @@ services:
     image: itsdkyp/whatsapp-bot:latest
     container_name: whatsapp-bot
     restart: unless-stopped
+    shm_size: '256m' # Chromium needs this after QR auth to load chats
     ports:
       - "3000:3000"
 
@@ -11,8 +12,8 @@ services:
       - NODE_ENV=production
       - PORT=3000
 
-    # Mount .env file for API keys and secrets
     env_file:
+      # Mount .env file for API keys and secrets
       - .env
 
     # CRITICAL: Volume mounts for data persistence
@@ -36,7 +37,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 60s
 
 # Named volumes for persistent storage
 # These volumes persist even when containers are removed
