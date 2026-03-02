@@ -36,4 +36,3 @@ sample_contacts.csv
 # Claude Code
 .claude/
 dist/
-public/
