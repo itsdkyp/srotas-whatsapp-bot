@@ -13,7 +13,7 @@
   },
   "build": {
     "appId": "com.srotas.whatsappbot",
-    "productName": "WhatsApp Bot Server",
+    "productName": "Srotas WhatsApp Bot",
     "directories": {
       "output": "dist"
     },
