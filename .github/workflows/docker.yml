@@ -3,18 +3,13 @@ name: Docker Build & Push
 on:
   push:
     branches:
-      - main                # Push latest image on every merge to main
+      - main       # Rebuild :latest on every merge to main
     tags:
-      - 'v*'               # Push versioned image on tags like v1.2.3
-    paths:
-      - 'src/**'
-      - 'public/**'
-      - 'server.js'
-      - 'Dockerfile'
-      - 'package*.json'
-      - 'deploy/**'
-      - '.github/workflows/docker.yml'
-  workflow_dispatch:        # Allow manual trigger from GitHub UI
+      - 'v*'       # Rebuild and version-tag on releases like v1.2.3
+    # Note: paths filter cannot be combined with tags in GitHub Actions.
+    # The branch + tag scope is already specific enough.
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────────
