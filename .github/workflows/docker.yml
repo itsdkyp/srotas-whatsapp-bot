@@ -14,11 +14,6 @@ on:
       - 'package*.json'
       - 'deploy/**'
       - '.github/workflows/docker.yml'
-    paths-ignore:
-      - '**.md'
-      - 'tests/**'
-      - 'docs/**'
-      - 'scripts/**'
   workflow_dispatch:        # Allow manual trigger from GitHub UI
 
 jobs:
