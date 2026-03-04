@@ -2,6 +2,17 @@ const { app, BrowserWindow, shell } = require('electron');
 const path = require('path');
 const { spawn, execSync } = require('child_process');
 
+// ════════════════════════════════════════════════
+// BACKGROUND SERVER MODE
+// If started with this flag, run the backend Express server instead of the UI.
+// This is necessary because ELECTRON_RUN_AS_NODE breaks ASAR support on Windows.
+// ════════════════════════════════════════════════
+if (process.argv.includes('--run-server')) {
+    // Run the server and stop Electron from initializing the UI
+    require('./server.js');
+    return;
+}
+
 let mainWindow;
 let serverProcess;
 
@@ -46,7 +57,7 @@ function createWindow() {
             nodeIntegration: false, // Security best practice
             contextIsolation: true,
         },
-        icon: path.join(__dirname, 'public', 'favicon.ico') // Optional: Add if we have an icon
+        icon: path.join(__dirname, 'public', 'icon.png') // App window icon
     });
 
     // Start the Express server
@@ -67,16 +78,16 @@ function createWindow() {
 }
 
 function startServer() {
-    const serverPath = path.join(__dirname, 'server.js');
     const userDataPath = app.getPath('userData');
 
-    // Use spawn to run the node server with dynamic port
-    serverProcess = spawn(process.execPath, [serverPath], {
+    // Use spawn to run the node server as a native Electron process
+    // This ensures full ASAR support on Windows!
+    serverProcess = spawn(process.execPath, [app.getAppPath(), '--run-server'], {
         env: {
             ...process.env,
-            ELECTRON_RUN_AS_NODE: '1',
             APP_USER_DATA_PATH: userDataPath,
-            PORT: '0' // 0 tells Express/Node to pick an available dynamic port
+            PORT: '0', // 0 tells Express/Node to pick an available dynamic port
+            ELECTRON_RUN_AS_NODE: '' // explicitly clear this to allow ASAR parsing
         },
         stdio: ['pipe', 'pipe', 'pipe'] // Pipe rather than inherit to capture stdout
     });
