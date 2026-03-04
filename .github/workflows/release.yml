@@ -118,12 +118,17 @@ jobs:
       - name: List release assets
         run: ls -lh release-assets/
 
+      - name: Extract Extact App Version
+        id: version
+        run: echo "APP_VERSION=v$(node -p "require('./package.json').version")" >> $GITHUB_ENV
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Srotas WhatsApp Bot ${{ github.ref_name }}
+          tag_name: ${{ env.APP_VERSION }}
+          name: Srotas WhatsApp Bot ${{ env.APP_VERSION }}
           draft: ${{ github.event.inputs.draft || 'false' }}
-          prerelease: ${{ contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
+          prerelease: ${{ contains(env.APP_VERSION, '-beta') || contains(env.APP_VERSION, '-rc') }}
           generate_release_notes: true
           files: release-assets/*
           body: |
@@ -131,9 +136,9 @@ jobs:
 
             | Platform | File | Description |
             |----------|------|-------------|
-            | 🍎 macOS | `*.dmg` | Drag-and-drop installer |
-            | 🍎 macOS | `*.pkg` | Package installer |
-            | 🪟 Windows | `*.exe` | NSIS setup wizard |
+            | 🍎 macOS | \`*.dmg\` | Drag-and-drop installer |
+            | 🍎 macOS | \`*.pkg\` | Package installer |
+            | 🪟 Windows | \`*.exe\` | NSIS setup wizard |
 
             ## 🚀 Getting Started
             See [docs/INSTALL.md](docs/INSTALL.md) for setup instructions.
