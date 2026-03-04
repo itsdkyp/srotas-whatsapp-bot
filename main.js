@@ -85,7 +85,8 @@ function startServer() {
     // Create a pristine child environment without the RUN_AS_NODE flag
     const childEnv = Object.assign({}, process.env, {
         APP_USER_DATA_PATH: userDataPath,
-        PORT: '0'
+        PORT: '0',
+        PACKAGED_ELECTRON: app.isPackaged ? 'true' : ''
     });
     delete childEnv.ELECTRON_RUN_AS_NODE;
 
