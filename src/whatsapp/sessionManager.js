@@ -51,17 +51,38 @@ function createClient(sessionId, name, retryCount = 0) {
     cleanStaleLocks(sessionId);
 
     let executablePath = undefined;
+    const isWindows = process.platform === 'win32';
 
-    // When packaged in Electron on Windows, puppeteer might struggle to find Chrome.
-    // We try to find a local installation.
-    if (process.env.ELECTRON_RUN_AS_NODE) {
+    // In packaged Electron, Puppeteer can't use its own bundled Chromium.
+    // Find the system Chrome/Edge install instead.
+    if (process.env.ELECTRON_RUN_AS_NODE || process.env.PACKAGED_ELECTRON) {
         try {
             const chromePaths = require('chrome-paths');
-            executablePath = chromePaths.chrome || chromePaths.chromium;
-            console.log(`[Session ${sessionId}] Running in Electron, setting Chrome path to: ${executablePath}`);
-        } catch (err) {
-            console.warn(`[Session ${sessionId}] Could not resolve Chrome path automatically in Electron.`);
+            // chrome-paths can return null — keep executablePath as undefined if nothing found
+            executablePath = chromePaths.chrome || chromePaths.chromium || undefined;
+        } catch (err) { /* ignore */ }
+
+        // Fallback: manually check common Windows install locations if still not found
+        if (!executablePath && isWindows) {
+            const winCandidates = [
+                // Chrome (system-wide)
+                'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+                'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+                // Chrome (per-user)
+                path.join(process.env.LOCALAPPDATA || '', 'Google\\Chrome\\Application\\chrome.exe'),
+                // Edge (always present on Windows 10+)
+                'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+                path.join(process.env.PROGRAMFILES || '', 'Microsoft\\Edge\\Application\\msedge.exe'),
+            ];
+            for (const candidate of winCandidates) {
+                if (candidate && fs.existsSync(candidate)) {
+                    executablePath = candidate;
+                    break;
+                }
+            }
         }
+
+        console.log(`[Session ${sessionId}] Electron mode — Chrome path: ${executablePath || 'puppeteer default'}`);
     }
 
     const authStrategy = new LocalAuth({
@@ -71,20 +92,29 @@ function createClient(sessionId, name, retryCount = 0) {
             : undefined
     });
 
+    // Base args (Linux/Docker-safe)
+    const puppeteerArgs = [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-gpu',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--disable-background-timer-throttling',
+        '--disable-renderer-backgrounding',
+    ];
+
+    // --no-zygote prevents post-QR crashes in Docker/Linux but HANGS on Windows
+    if (!isWindows) {
+        puppeteerArgs.push('--no-zygote');
+    }
+
     const client = new Client({
         authStrategy,
         puppeteer: {
             executablePath,
             headless: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-gpu',
-                '--disable-dev-shm-usage',
-                '--no-zygote',                 // Prevents crashes in Docker post-QR-auth
-                '--disable-accelerated-2d-canvas',
-                '--no-first-run',
-            ],
+            args: puppeteerArgs,
         },
     });
 
