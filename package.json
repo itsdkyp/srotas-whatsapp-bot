@@ -8,8 +8,8 @@
     "dev": "node server.js",
     "electron:start": "electron .",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
-    "build:win": "electron-builder --win",
-    "build:mac": "electron-builder --mac"
+    "build:win": "electron-builder --win --publish never",
+    "build:mac": "electron-builder --mac --publish never"
   },
   "build": {
     "appId": "com.srotas.whatsappbot",
