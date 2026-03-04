@@ -3,7 +3,7 @@
  */
 
 const crypto = require('crypto');
-const { settings } = require('./db/database');
+const { settings } = require('../db/database');
 
 const LICENSE_SECRET = 'WhatsAppBot-Pro-SecretKey-2026-v1';
 const EPOCH = new Date('2024-01-01T00:00:00Z').getTime();

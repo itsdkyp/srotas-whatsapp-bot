@@ -173,7 +173,7 @@ echo ""
 echo ""
 
 if [[ $INSTALL_TYPE == "2" ]]; then
-    COMPOSE_FILE="docker-compose.nginx.yml"
+    COMPOSE_FILE="deploy/docker-compose.nginx.yml"
     USE_CUSTOM_DOMAIN=true
     ACCESS_URL="http://$DOMAIN"
 
@@ -205,7 +205,7 @@ if [[ $INSTALL_TYPE == "2" ]]; then
         fi
     fi
 else
-    COMPOSE_FILE="docker-compose.yml"
+    COMPOSE_FILE="deploy/docker-compose.yml"
     USE_CUSTOM_DOMAIN=false
     ACCESS_URL="http://localhost:3000"
 fi
@@ -278,7 +278,7 @@ echo "   2. Restart after editing: cd $INSTALL_DIR && $DOCKER_COMPOSE_CMD restar
 echo ""
 echo -e "${BLUE}📚 Documentation:${NC}"
 echo "   README:         $INSTALL_DIR/README.md"
-echo "   Quick Ref:      $INSTALL_DIR/QUICK_REFERENCE.md"
+echo "   Quick Ref:      $INSTALL_DIR/docs/QUICK_REFERENCE.md"
 echo ""
 
 # Offer to open in browser

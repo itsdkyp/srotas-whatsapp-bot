@@ -13,7 +13,10 @@ const importModalClose = document.getElementById('importModalClose');
 const importStats = document.getElementById('importStats');
 const importPreviewHead = document.getElementById('importPreviewHead');
 const importPreviewBody = document.getElementById('importPreviewBody');
-const importGroupName = document.getElementById('importGroupName');
+const importGroupName = document.getElementById('importGroupName'); // kept for backward compat (may be null in new UI)
+const importGroupSelect = document.getElementById('importGroupSelect');
+const importNewGroupRow = document.getElementById('importNewGroupRow');
+const importNewGroupName = document.getElementById('importNewGroupName');
 const confirmImportBtn = document.getElementById('confirmImportBtn');
 const selectAllContacts = document.getElementById('selectAllContacts');
 
@@ -215,6 +218,22 @@ fileInput.addEventListener('change', async (e) => {
             }).join('') + '</tr>';
         }).join('');
 
+        // Populate group dropdown with existing groups
+        try {
+            const groups = await api('GET', '/api/groups');
+            const currentGroup = groupFilter.value || 'default';
+            importGroupSelect.innerHTML =
+                groups.map(g =>
+                    `<option value="${escapeHtml(g.name)}" ${g.name === currentGroup ? 'selected' : ''}>${escapeHtml(g.name)}</option>`
+                ).join('') +
+                '<option value="__new__">＋ Create new group…</option>';
+            importNewGroupRow.style.display = 'none';
+            importNewGroupName.value = '';
+        } catch (e) {
+            // fallback: show text field if groups can't be fetched
+            importGroupSelect.innerHTML = '<option value="default">default</option><option value="__new__">＋ Create new group…</option>';
+        }
+
         importModal.classList.add('active');
     } catch (err) {
         toast('Failed to upload file', 'error');
@@ -223,10 +242,28 @@ fileInput.addEventListener('change', async (e) => {
     fileInput.value = '';
 });
 
+// Show/hide new group text input when "Create new" is chosen
+if (importGroupSelect) {
+    importGroupSelect.addEventListener('change', () => {
+        const isNew = importGroupSelect.value === '__new__';
+        importNewGroupRow.style.display = isNew ? '' : 'none';
+        if (isNew) importNewGroupName.focus();
+    });
+}
+
 // ─── Confirm Import ───
 
 confirmImportBtn.addEventListener('click', async () => {
-    const group = importGroupName.value.trim() || 'default';
+    let group;
+    if (importGroupSelect && importGroupSelect.value === '__new__') {
+        group = importNewGroupName.value.trim();
+        if (!group) return toast('Please enter a new group name', 'error');
+    } else if (importGroupSelect) {
+        group = importGroupSelect.value || 'default';
+    } else {
+        // fallback for old importGroupName text input
+        group = (importGroupName && importGroupName.value.trim()) || 'default';
+    }
 
     confirmImportBtn.disabled = true;
     confirmImportBtn.textContent = 'Importing...';

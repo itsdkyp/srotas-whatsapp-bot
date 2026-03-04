@@ -1,29 +1,7 @@
-const { contacts: contactsDb, settings: settingsDb } = require('../db/database');
+const { db, contacts: contactsDb } = require('../db/database');
 const bulkSender = require('./bulkSender');
-const Database = require('better-sqlite3');
-const path = require('path');
 
-// We reuse the same DB file
-const db = new Database(path.join(__dirname, '..', '..', 'data', 'bot.db'));
-
-// Create schedules table
-db.exec(`
-  CREATE TABLE IF NOT EXISTS schedules (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    group_name TEXT NOT NULL,
-    template TEXT NOT NULL,
-    frequency TEXT NOT NULL,
-    day_of_week INTEGER DEFAULT 0,
-    day_of_month INTEGER DEFAULT 1,
-    send_time TEXT NOT NULL DEFAULT '09:00',
-    enabled INTEGER DEFAULT 1,
-    last_run TEXT,
-    next_run TEXT,
-    created_at TEXT DEFAULT (datetime('now'))
-  );
-`);
+// schedules table is created in database.js — no separate DB connection needed
 
 let io = null;
 let timerHandle = null;

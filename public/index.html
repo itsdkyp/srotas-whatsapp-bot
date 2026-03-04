@@ -811,9 +811,12 @@
       </div>
       <div class="modal-body">
         <div class="form-group">
-          <label>Group Name</label>
-          <input type="text" id="importGroupName" class="text-input" placeholder="e.g. clients, leads"
-            value="default" />
+          <label>Import to Group</label>
+          <select id="importGroupSelect" class="select-input"></select>
+        </div>
+        <div class="form-group" id="importNewGroupRow" style="display:none;">
+          <label>New Group Name</label>
+          <input type="text" id="importNewGroupName" class="text-input" placeholder="e.g. clients, leads" />
         </div>
         <div class="import-stats" id="importStats"></div>
         <div class="table-container table-scroll">

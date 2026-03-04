@@ -5,6 +5,9 @@ uploads/
 .wwebjs_auth/
 .wwebjs_cache/
 
+# Test scratch files
+tests/
+
 # Backup files
 *.backup.*
 backup-*.tar.gz
@@ -21,6 +24,7 @@ dist/
 !dist/*.exe
 !dist/*.dmg
 !dist/*.blockmap
+!dist/*.pkg
 
 # Logs
 *.log
@@ -30,3 +34,9 @@ nohup.out
 # OS files
 .DS_Store
 Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo

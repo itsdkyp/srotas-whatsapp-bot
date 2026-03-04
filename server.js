@@ -13,7 +13,7 @@ const bulkSender = require('./src/messaging/bulkSender');
 const scheduler = require('./src/messaging/scheduler');
 const importer = require('./src/contacts/importer');
 const license = require('./src/license');
-const { sessions: sessionsDb, contacts: contactsDb, groups: groupsDb, campaigns: campaignsDb, settings: settingsDb, messages: messagesDb, quickReplies: quickRepliesDb, templates: templatesDb } = require('./src/db/database');
+const { sessions: sessionsDb, contacts: contactsDb, groups: groupsDb, campaigns: campaignsDb, settings: settingsDb, messages: messagesDb, quickReplies: quickRepliesDb, templates: templatesDb, autoReplyLogs } = require('./src/db/database');
 
 const app = express();
 const server = http.createServer(app);
@@ -746,21 +746,28 @@ app.get('/api/analytics', (req, res) => {
             phone: s.phone
         }));
 
-        // AI Analytics (placeholder - will be populated when AI conversation tracking is implemented)
-        const aiAnalytics = {
-            totalConversations: 0,
-            messagesHandled: 0,
-            avgResponseTime: 0,
-            successRate: 0
-        };
+        // Build sinceIso for auto_reply_logs filtering
+        let sinceIso = null;
+        if (range === 'today') {
+            const d = new Date(now);
+            d.setHours(0, 0, 0, 0);
+            sinceIso = d.toISOString();
+        } else if (range === 'yesterday') {
+            const d = new Date(now);
+            d.setDate(d.getDate() - 1);
+            d.setHours(0, 0, 0, 0);
+            sinceIso = d.toISOString();
+        } else if (range === '7days') {
+            sinceIso = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+        } else if (range === '30days') {
+            sinceIso = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
+        }
+        // 'all' => sinceIso stays null (no date filter)
 
-        // Quick Reply Analytics (placeholder - will be populated when quick reply tracking is implemented)
-        const quickReplyAnalytics = {
-            totalTriggers: 0,
-            uniqueUsers: 0,
-            avgResponseTime: 0,
-            mostUsed: '—'
-        };
+        // AI & Quick Reply Analytics from real tracking data
+        const autoStats = autoReplyLogs.getStats(sinceIso);
+        const aiAnalytics = autoStats.ai;
+        const quickReplyAnalytics = autoStats.quickReply;
 
         const response = {
             stats: {

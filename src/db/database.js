@@ -101,6 +101,32 @@ db.exec(`
     buttons_config TEXT,
     created_at TEXT DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS auto_reply_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT,
+    contact_phone TEXT NOT NULL,
+    type TEXT NOT NULL,
+    trigger_key TEXT,
+    response_time_ms INTEGER,
+    timestamp TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    group_name TEXT NOT NULL,
+    template TEXT NOT NULL,
+    frequency TEXT NOT NULL,
+    day_of_week INTEGER DEFAULT 0,
+    day_of_month INTEGER DEFAULT 1,
+    send_time TEXT NOT NULL DEFAULT '09:00',
+    enabled INTEGER DEFAULT 1,
+    last_run TEXT,
+    next_run TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
 `);
 
 // Migrations for existing databases
@@ -350,4 +376,55 @@ const templates = {
     delete: (id) => db.prepare('DELETE FROM message_templates WHERE id = ?').run(id),
 };
 
-module.exports = { db, sessions, groups, contacts, campaigns, messages, settings, quickReplies, templates };
+const autoReplyLogs = {
+    add: (sessionId, contactPhone, type, triggerKey, responseTimeMs) => {
+        db.prepare(
+            'INSERT INTO auto_reply_logs (session_id, contact_phone, type, trigger_key, response_time_ms) VALUES (?, ?, ?, ?, ?)'
+        ).run(sessionId || null, contactPhone, type, triggerKey || null, responseTimeMs || null);
+    },
+    getStats: (sinceIso) => {
+        const where = sinceIso ? `WHERE timestamp >= '${sinceIso}'` : '';
+
+        const aiRows = db.prepare(
+            `SELECT COUNT(*) as total, COUNT(DISTINCT contact_phone) as unique_users,
+             AVG(response_time_ms) as avg_ms
+             FROM auto_reply_logs WHERE type = 'ai' ${sinceIso ? `AND timestamp >= '${sinceIso}'` : ''}`
+        ).get();
+
+        const qrRows = db.prepare(
+            `SELECT COUNT(*) as total, COUNT(DISTINCT contact_phone) as unique_users,
+             AVG(response_time_ms) as avg_ms
+             FROM auto_reply_logs WHERE type = 'quick_reply' ${sinceIso ? `AND timestamp >= '${sinceIso}'` : ''}`
+        ).get();
+
+        const mostUsedRow = db.prepare(
+            `SELECT trigger_key, COUNT(*) as cnt FROM auto_reply_logs
+             WHERE type = 'quick_reply' AND trigger_key IS NOT NULL
+             ${sinceIso ? `AND timestamp >= '${sinceIso}'` : ''}
+             GROUP BY trigger_key ORDER BY cnt DESC LIMIT 1`
+        ).get();
+
+        // AI conversation count — distinct contacts that had at least one AI reply
+        const aiConversations = db.prepare(
+            `SELECT COUNT(DISTINCT contact_phone) as cnt FROM auto_reply_logs
+             WHERE type = 'ai' ${sinceIso ? `AND timestamp >= '${sinceIso}'` : ''}`
+        ).get();
+
+        return {
+            ai: {
+                totalConversations: aiConversations ? aiConversations.cnt : 0,
+                messagesHandled: aiRows ? aiRows.total : 0,
+                avgResponseTime: aiRows && aiRows.avg_ms ? Math.round(aiRows.avg_ms / 100) / 10 : 0,
+                successRate: 100
+            },
+            quickReply: {
+                totalTriggers: qrRows ? qrRows.total : 0,
+                uniqueUsers: qrRows ? qrRows.unique_users : 0,
+                avgResponseTime: qrRows && qrRows.avg_ms ? Math.round(qrRows.avg_ms) : 0,
+                mostUsed: mostUsedRow ? mostUsedRow.trigger_key : '—'
+            }
+        };
+    }
+};
+
+module.exports = { db, sessions, groups, contacts, campaigns, messages, settings, quickReplies, templates, autoReplyLogs };

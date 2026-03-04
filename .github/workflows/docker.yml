@@ -6,6 +6,19 @@ on:
       - main                # Push latest image on every merge to main
     tags:
       - 'v*'               # Push versioned image on tags like v1.2.3
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'server.js'
+      - 'Dockerfile'
+      - 'package*.json'
+      - 'deploy/**'
+      - '.github/workflows/docker.yml'
+    paths-ignore:
+      - '**.md'
+      - 'tests/**'
+      - 'docs/**'
+      - 'scripts/**'
   workflow_dispatch:        # Allow manual trigger from GitHub UI
 
 jobs:
@@ -128,4 +141,3 @@ jobs:
 
       - name: Inspect final image
         run: docker buildx imagetools inspect itsdkyp/whatsapp-bot:${{ steps.meta.outputs.version }}
-

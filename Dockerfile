@@ -42,7 +42,7 @@ COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/src ./src
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/server.js ./
-COPY --from=builder /app/main.js ./
+COPY --from=builder /app/sample_contacts.csv ./
 
 RUN mkdir -p data uploads .wwebjs_auth .wwebjs_cache
 

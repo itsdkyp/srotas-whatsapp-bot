@@ -1,7 +1,7 @@
 const { generateReply } = require('../ai/provider');
 const { MessageMedia } = require('whatsapp-web.js');
 const memory = require('../ai/memory');
-const { sessions: sessionDb, quickReplies: quickRepliesDb, campaigns: campaignsDb } = require('../db/database');
+const { sessions: sessionDb, quickReplies: quickRepliesDb, campaigns: campaignsDb, autoReplyLogs } = require('../db/database');
 const sessionManager = require('./sessionManager');
 const fs = require('fs');
 
@@ -106,6 +106,9 @@ function init() {
             // Store incoming message
             memory.addMessage(contactPhone, 'in', content, sessionId);
 
+            // Record start time for response tracking
+            const msgStartTime = Date.now();
+
             // Get session settings first
             const session = sessionDb.getById(sessionId);
             if (!session) return;
@@ -164,6 +167,12 @@ function init() {
 
                     memory.addMessage(contactPhone, 'out', `[Quick Reply: ${matchedReply.label}] ${matchedReply.response}`, sessionId);
                     console.log(`[QuickReply → ${contactPhone}] Trigger: "${matchedReply.trigger_key}" → Sent: "${matchedReply.label}"`);
+
+                    // Log quick reply analytics
+                    try {
+                        autoReplyLogs.add(sessionId, contactPhone, 'quick_reply', matchedReply.trigger_key, Date.now() - msgStartTime);
+                    } catch (e) { /* non-critical */ }
+
                     return; // Don't proceed to AI
                 } else {
                     console.log(`[QuickReply] No match found for: "${trimmedContent}"`);
@@ -190,6 +199,11 @@ function init() {
                 // Store outgoing message
                 memory.addMessage(contactPhone, 'out', reply.trim(), sessionId);
                 console.log(`[AutoReply → ${contactPhone}] ${reply.trim().substring(0, 80)}...`);
+
+                // Log AI reply analytics
+                try {
+                    autoReplyLogs.add(sessionId, contactPhone, 'ai', null, Date.now() - msgStartTime);
+                } catch (e) { /* non-critical */ }
             }
         } catch (err) {
             console.error(`[MessageHandler] Error processing message:`, err.message);
