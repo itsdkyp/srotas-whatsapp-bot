@@ -8,28 +8,28 @@ const addScheduleBtn = document.getElementById('addScheduleBtn');
 // ─── Load Scheduler ───
 
 async function loadScheduler() {
-    const schedules = await api('GET', '/api/schedules');
-    renderSchedules(schedules);
+  const schedules = await api('GET', '/api/schedules');
+  renderSchedules(schedules);
 }
 
 function renderSchedules(schedules) {
-    if (!schedules || !schedules.length) {
-        schedulesList.innerHTML = `
+  if (!schedules || !schedules.length) {
+    schedulesList.innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">📅</div>
         <p>No scheduled messages yet</p>
         <p style="color:var(--text-muted); font-size:13px;">Create a schedule to automatically send messages daily, weekly, or monthly</p>
       </div>
     `;
-        return;
-    }
+    return;
+  }
 
-    schedulesList.innerHTML = schedules.map(s => {
-        const freq = formatFrequency(s);
-        const nextRun = s.next_run ? new Date(s.next_run).toLocaleString() : '—';
-        const lastRun = s.last_run ? new Date(s.last_run).toLocaleString() : 'Never';
+  schedulesList.innerHTML = schedules.map(s => {
+    const freq = formatFrequency(s);
+    const nextRun = s.next_run ? new Date(s.next_run).toLocaleString() : '—';
+    const lastRun = s.last_run ? new Date(s.last_run).toLocaleString() : 'Never';
 
-        return `
+    return `
       <div class="card schedule-card" style="margin-bottom:16px;">
         <div class="session-card-header">
           <span class="session-name">${escapeHtml(s.name)}</span>
@@ -59,37 +59,37 @@ function renderSchedules(schedules) {
         </div>
       </div>
     `;
-    }).join('');
+  }).join('');
 }
 
 function formatFrequency(s) {
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    if (s.frequency === 'daily') return `Daily at ${s.send_time}`;
-    if (s.frequency === 'weekly') return `Every ${days[s.day_of_week] || 'Monday'} at ${s.send_time}`;
-    if (s.frequency === 'monthly') return `Monthly on day ${s.day_of_month} at ${s.send_time}`;
-    return s.frequency;
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  if (s.frequency === 'daily') return `Daily at ${s.send_time}`;
+  if (s.frequency === 'weekly') return `Every ${days[s.day_of_week] || 'Monday'} at ${s.send_time}`;
+  if (s.frequency === 'monthly') return `Monthly on day ${s.day_of_month} at ${s.send_time}`;
+  return s.frequency;
 }
 
 // ─── Add Schedule ───
 
 addScheduleBtn.addEventListener('click', () => {
-    showScheduleForm();
+  showScheduleForm();
 });
 
 async function showScheduleForm() {
-    const sessions = await api('GET', '/api/sessions');
-    const groups = await api('GET', '/api/contacts/groups');
+  const sessions = await api('GET', '/api/sessions');
+  const groups = await api('GET', '/api/contacts/groups');
 
-    const sessionOptions = sessions
-        .filter(s => s.status === 'ready')
-        .map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`)
-        .join('');
+  const sessionOptions = sessions
+    .filter(s => s.status === 'ready')
+    .map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`)
+    .join('');
 
-    const groupOptions = groups
-        .map(g => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`)
-        .join('');
+  const groupOptions = groups
+    .map(g => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`)
+    .join('');
 
-    schedulesList.innerHTML = `
+  schedulesList.innerHTML = `
     <div class="card" style="max-width:600px;">
       <h3>Create Schedule</h3>
       <div class="form-group">
@@ -152,56 +152,56 @@ async function showScheduleForm() {
 }
 
 function updateScheduleFields() {
-    const freq = document.getElementById('schedFrequency').value;
-    document.getElementById('schedWeeklyField').style.display = freq === 'weekly' ? 'block' : 'none';
-    document.getElementById('schedMonthlyField').style.display = freq === 'monthly' ? 'block' : 'none';
+  const freq = document.getElementById('schedFrequency').value;
+  document.getElementById('schedWeeklyField').style.display = freq === 'weekly' ? 'block' : 'none';
+  document.getElementById('schedMonthlyField').style.display = freq === 'monthly' ? 'block' : 'none';
 }
 
 async function saveSchedule() {
-    const name = document.getElementById('schedName').value.trim();
-    const sessionId = document.getElementById('schedSession').value;
-    const groupName = document.getElementById('schedGroup').value;
-    const template = document.getElementById('schedTemplate').value.trim();
-    const frequency = document.getElementById('schedFrequency').value;
-    const dayOfWeek = parseInt(document.getElementById('schedDayOfWeek').value);
-    const dayOfMonth = parseInt(document.getElementById('schedDayOfMonth').value);
-    const sendTime = document.getElementById('schedSendTime').value;
+  const name = document.getElementById('schedName').value.trim();
+  const sessionId = document.getElementById('schedSession').value;
+  const groupName = document.getElementById('schedGroup').value;
+  const template = document.getElementById('schedTemplate').value.trim();
+  const frequency = document.getElementById('schedFrequency').value;
+  const dayOfWeek = parseInt(document.getElementById('schedDayOfWeek').value);
+  const dayOfMonth = parseInt(document.getElementById('schedDayOfMonth').value);
+  const sendTime = document.getElementById('schedSendTime').value;
 
-    if (!name) return toast('Enter a schedule name', 'error');
-    if (!sessionId) return toast('Select a session', 'error');
-    if (!groupName) return toast('Select a contact group', 'error');
-    if (!template) return toast('Enter a message template', 'error');
+  if (!name) return toast('Enter a schedule name', 'error');
+  if (!sessionId) return toast('Select a session', 'error');
+  if (!groupName) return toast('Select a contact group', 'error');
+  if (!template) return toast('Enter a message template', 'error');
 
-    try {
-        await api('POST', '/api/schedules', {
-            name, sessionId, groupName, template, frequency,
-            dayOfWeek, dayOfMonth, sendTime
-        });
-        toast(`Schedule "${name}" created`, 'success');
-        loadScheduler();
-    } catch (err) {
-        toast(err.message || 'Failed to create schedule', 'error');
-    }
+  try {
+    await api('POST', '/api/schedules', {
+      name, sessionId, groupName, template, frequency,
+      dayOfWeek, dayOfMonth, sendTime
+    });
+    toast(`Schedule "${name}" created`, 'success');
+    loadScheduler();
+  } catch (err) {
+    toast(err.message || 'Failed to create schedule', 'error');
+  }
 }
 
 // ─── Toggle / Delete ───
 
 async function toggleSchedule(id, enabled) {
-    await api('PUT', `/api/schedules/${id}/toggle`, { enabled });
-    toast(`Schedule ${enabled ? 'enabled' : 'paused'}`, 'info');
-    loadScheduler();
+  await api('PUT', `/api/schedules/${id}/toggle`, { enabled });
+  toast(`Schedule ${enabled ? 'enabled' : 'paused'}`, 'info');
+  loadScheduler();
 }
 
-async function deleteSchedule(id) {
-    if (!confirm('Delete this scheduled job?')) return;
-    await api('DELETE', `/api/schedules/${id}`);
-    toast('Schedule deleted', 'success');
-    loadScheduler();
+async function deleteSchedule(jobId) {
+  if (!await UI.confirm('Delete this scheduled job?')) return;
+  await api('DELETE', `/api/schedules/${jobId}`);
+  toast('Schedule deleted', 'success');
+  loadScheduler();
 }
 
 // ─── Socket.IO Events ───
 
 socket.on('schedule:executed', (data) => {
-    toast(`Scheduled job "${data.name}" executed. Next: ${new Date(data.nextRun).toLocaleString()}`, 'success');
-    loadScheduler();
+  toast(`Scheduled job "${data.name}" executed. Next: ${new Date(data.nextRun).toLocaleString()}`, 'success');
+  loadScheduler();
 });

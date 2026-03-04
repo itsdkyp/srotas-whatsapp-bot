@@ -316,6 +316,12 @@ addContactBtn.addEventListener('click', () => {
 
 addContactModalClose.addEventListener('click', () => addContactModal.classList.remove('active'));
 
+[newContactName, newContactPhone, newContactCompany].forEach(input => {
+    input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') saveContactBtn.click();
+    });
+});
+
 saveContactBtn.addEventListener('click', async () => {
     const phone = newContactPhone.value.trim();
     const name = newContactName.value.trim();
@@ -554,6 +560,10 @@ createGroupBtn.addEventListener('click', () => {
 
 createGroupModalClose.addEventListener('click', () => createGroupModal.classList.remove('active'));
 
+newGroupName.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') saveGroupBtn.click();
+});
+
 saveGroupBtn.addEventListener('click', async () => {
     const name = newGroupName.value.trim();
     const description = newGroupDesc.value.trim();
@@ -575,7 +585,7 @@ deleteGroupBtn.addEventListener('click', async () => {
     const groupName = groupFilter.value;
     if (!groupName) return;
     if (groupName === 'default') return toast('Cannot delete the default group', 'error');
-    if (!confirm(`Delete group "${groupName}" and all its contacts?`)) return;
+    if (!await UI.confirm(`Delete group "${groupName}" and all its contacts?`)) return;
 
     try {
         const groups = await api('GET', '/api/groups');

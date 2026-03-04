@@ -50,11 +50,11 @@ async function loadTemplatesPage() {
                     </thead>
                     <tbody>
                         ${templates.map(t => {
-                            let mediaCount = 0;
-                            try { mediaCount = t.media_paths ? JSON.parse(t.media_paths).length : 0; } catch(e) {}
-                            let btnCount = 0;
-                            try { btnCount = t.buttons_config ? JSON.parse(t.buttons_config).length : 0; } catch(e) {}
-                            return `
+            let mediaCount = 0;
+            try { mediaCount = t.media_paths ? JSON.parse(t.media_paths).length : 0; } catch (e) { }
+            let btnCount = 0;
+            try { btnCount = t.buttons_config ? JSON.parse(t.buttons_config).length : 0; } catch (e) { }
+            return `
                             <tr>
                                 <td style="font-weight:600;">${escapeHtml(t.name)}</td>
                                 <td style="max-width:250px;">
@@ -70,7 +70,7 @@ async function loadTemplatesPage() {
                                     <button class="btn btn-danger btn-sm" onclick="deleteTemplate(${t.id}, '${escapeHtml(t.name)}')">Delete</button>
                                 </td>
                             </tr>`;
-                        }).join('')}
+        }).join('')}
                     </tbody>
                 </table>
             </div>`;
@@ -257,7 +257,7 @@ async function editTemplate(id) {
                         _tmplMediaFiles.push({ path: p, filename: parts[parts.length - 1], size: 0 });
                     }
                 }
-            } catch (e) {}
+            } catch (e) { }
         }
         renderTmplMediaFileList();
 
@@ -280,7 +280,7 @@ async function editTemplate(id) {
                         tmplButtonsList.appendChild(div);
                     }
                 }
-            } catch (e) {}
+            } catch (e) { }
         }
         updateTmplAddButtonState();
 
@@ -293,7 +293,7 @@ async function editTemplate(id) {
 // ─── Delete Template ───
 
 async function deleteTemplate(id, name) {
-    if (!confirm(`Delete template "${name}"? This cannot be undone.`)) return;
+    if (!await UI.confirm(`Delete template "${name}"? This cannot be undone.`)) return;
 
     try {
         await api('DELETE', `/api/templates/${id}`);

@@ -79,16 +79,24 @@ function createWindow() {
 
 function startServer() {
     const userDataPath = app.getPath('userData');
+    const fs = require('fs');
+    const crashLogPath = require('path').join(userDataPath, 'crash.log');
+
+    // Create a pristine child environment without the RUN_AS_NODE flag
+    const childEnv = Object.assign({}, process.env, {
+        APP_USER_DATA_PATH: userDataPath,
+        PORT: '0'
+    });
+    delete childEnv.ELECTRON_RUN_AS_NODE;
+
+    try {
+        fs.appendFileSync(crashLogPath, `[Spawning] ExecPath: ${process.execPath}, AppPath: ${app.getAppPath()}\n`);
+    } catch (e) { }
 
     // Use spawn to run the node server as a native Electron process
     // This ensures full ASAR support on Windows!
     serverProcess = spawn(process.execPath, [app.getAppPath(), '--run-server'], {
-        env: {
-            ...process.env,
-            APP_USER_DATA_PATH: userDataPath,
-            PORT: '0', // 0 tells Express/Node to pick an available dynamic port
-            ELECTRON_RUN_AS_NODE: '' // explicitly clear this to allow ASAR parsing
-        },
+        env: childEnv,
         stdio: ['pipe', 'pipe', 'pipe'] // Pipe rather than inherit to capture stdout
     });
 
@@ -115,10 +123,16 @@ function startServer() {
 
     serverProcess.stderr.on('data', (data) => {
         console.error(`[Server Error] ${data.toString()}`);
+        try { fs.appendFileSync(crashLogPath, `[Server Stderr] ${data.toString()}\n`); } catch (e) { }
     });
 
     serverProcess.on('error', (err) => {
         console.error('Failed to start server process:', err);
+        try { fs.appendFileSync(crashLogPath, `[Spawn Error] ${err.message}\n`); } catch (e) { }
+    });
+
+    serverProcess.on('exit', (code, signal) => {
+        try { fs.appendFileSync(crashLogPath, `[Server Exit] Code: ${code}, Signal: ${signal}\n`); } catch (e) { }
     });
 }
 
@@ -142,4 +156,12 @@ function killServerProcess() {
 
     serverProcess = null;
 }
+
+// Global error handler for the main process to catch uncaught exceptions
+process.on('uncaughtException', (err) => {
+    try {
+        const fs = require('fs');
+        fs.appendFileSync(path.join(app.getPath('userData'), 'crash.log'), `[Main Error] ${err.message}\n${err.stack}\n`);
+    } catch (e) { }
+});
 

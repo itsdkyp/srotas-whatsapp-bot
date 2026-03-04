@@ -314,7 +314,7 @@ sendNowBtn.addEventListener('click', async () => {
     if (!group) return toast('Select a contact group', 'error');
     if (!template) return toast('Enter a message template', 'error');
 
-    if (!confirm(`Send this message to all contacts in "${group}" now?`)) return;
+    if (!await UI.confirm(`Send this message to all contacts in "${group}" now?`)) return;
 
     console.log('User confirmed sending. Starting UI update...');
 
@@ -586,7 +586,7 @@ function renderCampaignDetail(data, filter) {
     const allMessages = data.messages || [];
     const filteredMessages = filter === 'all' ? allMessages
         : filter === 'sent' ? allMessages.filter(m => m.status === 'sent')
-        : allMessages.filter(m => m.status === 'failed');
+            : allMessages.filter(m => m.status === 'failed');
 
     // Error breakdown section
     const errorBreakdown = data.errorBreakdown || [];
@@ -723,13 +723,13 @@ async function retryCampaign(id) {
 
         let sessionId = ready[0].id;
         if (ready.length > 1) {
-            const choice = prompt(`Select session to retry from:\n${ready.map((s, i) => `${i + 1}. ${s.name} (${s.phone || '?'})`).join('\n')}\n\nEnter number:`);
+            const choice = await UI.prompt(`Select session to retry from:\n${ready.map((s, i) => `${i + 1}. ${s.name} (${s.phone || '?'})`).join('\n')}\n\nEnter number:`);
             if (!choice) return;
             const idx = parseInt(choice) - 1;
             if (idx >= 0 && idx < ready.length) sessionId = ready[idx].id;
         }
 
-        if (!confirm(`Retry all failed messages in campaign #${id}?`)) return;
+        if (!await UI.confirm(`Retry all failed messages in campaign #${id}?`)) return;
 
         // Close detail modal if open, open progress modal
         campaignModal.classList.remove('active');
@@ -761,13 +761,13 @@ async function restartCampaign(id) {
 
         let sessionId = ready[0].id;
         if (ready.length > 1) {
-            const choice = prompt(`Select session:\n${ready.map((s, i) => `${i + 1}. ${s.name} (${s.phone || '?'})`).join('\n')}\n\nEnter number:`);
+            const choice = await UI.prompt(`Select session:\n${ready.map((s, i) => `${i + 1}. ${s.name} (${s.phone || '?'})`).join('\n')}\n\nEnter number:`);
             if (!choice) return;
             const idx = parseInt(choice) - 1;
             if (idx >= 0 && idx < ready.length) sessionId = ready[idx].id;
         }
 
-        if (!confirm(`Restart campaign #${id}? This will re-send to ALL contacts in the group.`)) return;
+        if (!await UI.confirm(`Restart campaign #${id}? This will re-send to ALL contacts in the group.`)) return;
 
         campaignModal.classList.remove('active');
         progressModal.classList.add('active');
@@ -786,7 +786,7 @@ async function restartCampaign(id) {
 // ─── Delete Campaign ───
 
 async function deleteCampaign(id) {
-    if (!confirm(`Delete campaign #${id} and all its message records? This cannot be undone.`)) return;
+    if (!await UI.confirm(`Delete campaign #${id} and all its message records? This cannot be undone.`)) return;
 
     try {
         await api('DELETE', `/api/campaigns/${id}`);
@@ -836,7 +836,7 @@ campTemplateSelector.addEventListener('change', () => {
                     _campaignMediaFiles.push({ path: p, filename: parts[parts.length - 1], size: 0 });
                 }
             }
-        } catch (e) {}
+        } catch (e) { }
     }
     renderMediaFileList();
 
@@ -859,7 +859,7 @@ campTemplateSelector.addEventListener('change', () => {
                     campaignButtonsList.appendChild(div);
                 }
             }
-        } catch (e) {}
+        } catch (e) { }
     }
     updateAddButtonState();
     toast(`Template "${tmpl.name}" loaded`, 'success');
@@ -869,7 +869,7 @@ async function saveAsTemplate() {
     const content = campTemplate.value.trim();
     if (!content) return toast('Write a message template first', 'error');
 
-    const name = prompt('Template name:');
+    const name = await UI.prompt('Template name:');
     if (!name || !name.trim()) return;
 
     // Collect current buttons
@@ -901,7 +901,7 @@ async function deleteSelectedTemplate() {
     const id = campTemplateSelector.value;
     if (!id) return;
     const tmpl = _loadedTemplates.find(t => t.id === parseInt(id));
-    if (!confirm(`Delete template "${tmpl ? tmpl.name : id}"?`)) return;
+    if (!await UI.confirm(`Delete template "${tmpl ? tmpl.name : id}"?`)) return;
 
     try {
         await api('DELETE', `/api/templates/${id}`);

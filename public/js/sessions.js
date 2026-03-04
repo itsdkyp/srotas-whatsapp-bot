@@ -145,6 +145,10 @@ function openAddSessionModal() {
   sessionNameInput.focus();
 }
 
+sessionNameInput.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') createSessionBtn.click();
+});
+
 addSessionBtn.addEventListener('click', openAddSessionModal);
 
 addSessionModalClose.addEventListener('click', () => {
@@ -285,7 +289,7 @@ async function toggleQuickReplies(sessionId, enabled) {
 // ─── Delete Session ───
 
 async function deleteSession(sessionId) {
-  if (!confirm('Remove this session? You will need to scan QR again.')) return;
+  if (!await UI.confirm('Remove this session? You will need to scan QR again.')) return;
   try {
     await api('DELETE', `/api/sessions/${sessionId}`);
     toast('Session removed', 'success');
@@ -321,7 +325,7 @@ async function restartSession(sessionId) {
 // ─── Relink Session (clear auth + fresh QR) ───
 
 async function relinkSession(sessionId, sessionName) {
-  if (!confirm(`Relink "${sessionName}"? This will clear stored auth and require a fresh QR scan.`)) return;
+  if (!await UI.confirm(`Relink "${sessionName}"? This will clear stored auth and require a fresh QR scan.`)) return;
 
   try {
     toast('Relinking session — clearing old auth data...', 'info');

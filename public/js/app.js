@@ -242,3 +242,79 @@ function setupActivationHandler() {
         btn.textContent = 'Activate License';
     });
 }
+
+// ─── Custom UI Components ───
+// Native window.confirm() in Electron on Windows causes an infamous bug where 
+// keyboard focus is lost, rendering <input> fields untypable. 
+// We use a custom DOM modal to bypass this.
+const UI = {
+    confirm: async function (message, confirmText = 'Yes', cancelText = 'Cancel') {
+        return new Promise(resolve => {
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay active';
+            overlay.style.zIndex = '9999';
+            overlay.innerHTML = `
+                <div class="modal modal-sm" style="animation: fadeIn 0.15s ease-out;">
+                    <div class="modal-body" style="text-align: center; padding: 24px 16px;">
+                        <div style="font-size: 36px; margin-bottom: 12px; line-height: 1;">⚠️</div>
+                        <h4 style="margin-bottom: 24px; color: var(--text-primary); font-weight: 500; font-size: 15px;">${escapeHtml(message)}</h4>
+                        <div style="display: flex; gap: 12px; justify-content: center;">
+                            <button class="btn" id="confirmCancelBtn" style="background: var(--bg-input); flex: 1;">${cancelText}</button>
+                            <button class="btn btn-danger" id="confirmOkBtn" style="flex: 1;">${confirmText}</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+
+            document.getElementById('confirmOkBtn').onclick = () => {
+                overlay.remove();
+                resolve(true);
+            };
+            document.getElementById('confirmCancelBtn').onclick = () => {
+                overlay.remove();
+                resolve(false);
+            };
+        });
+    },
+    prompt: async function (message, defaultValue = '', placeholder = '') {
+        return new Promise(resolve => {
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay active';
+            overlay.style.zIndex = '9999';
+            // Simple string replacement for line breaks formatting
+            const htmlMessage = escapeHtml(message).replace(/\n/g, '<br>');
+            overlay.innerHTML = `
+                <div class="modal modal-sm" style="animation: fadeIn 0.15s ease-out;">
+                    <div class="modal-body" style="padding: 24px 16px;">
+                        <h4 style="margin-bottom: 16px; color: var(--text-primary); font-weight: 500; font-size: 15px; text-align: center;">${htmlMessage}</h4>
+                        <input type="text" id="uiPromptInput" class="text-input" style="margin-bottom: 20px;" placeholder="${placeholder}" value="${escapeHtml(defaultValue)}">
+                        <div style="display: flex; gap: 12px; justify-content: center;">
+                            <button class="btn" id="promptCancelBtn" style="background: var(--bg-input); flex: 1;">Cancel</button>
+                            <button class="btn btn-primary" id="promptOkBtn" style="flex: 1;">OK</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+
+            const inputEl = document.getElementById('uiPromptInput');
+            inputEl.focus();
+            inputEl.select();
+
+            inputEl.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') document.getElementById('promptOkBtn').click();
+            });
+
+            document.getElementById('promptOkBtn').onclick = () => {
+                const val = inputEl.value;
+                overlay.remove();
+                resolve(val);
+            };
+            document.getElementById('promptCancelBtn').onclick = () => {
+                overlay.remove();
+                resolve(null); // window.prompt returns null on cancel
+            };
+        });
+    }
+};

@@ -148,6 +148,12 @@ async function editQuickReply(id) {
 
 // ─── Save Quick Reply ───
 
+[qrTrigger, qrLabel].forEach(input => {
+    input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') saveQuickReplyBtn.click();
+    });
+});
+
 saveQuickReplyBtn.addEventListener('click', async () => {
     const triggerKey = qrTrigger.value.trim();
     const label = qrLabel.value.trim();
@@ -189,7 +195,7 @@ async function toggleQuickReply(id, enabled) {
 }
 
 async function deleteQuickReply(id) {
-    if (!confirm('Delete this quick reply?')) return;
+    if (!await UI.confirm('Delete this quick reply?')) return;
     try {
         await api('DELETE', `/api/quick-replies/${id}`);
         toast('Quick reply deleted', 'success');
