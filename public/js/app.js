@@ -255,26 +255,31 @@ const UI = {
             overlay.style.zIndex = '9999';
             overlay.innerHTML = `
                 <div class="modal modal-sm" style="animation: fadeIn 0.15s ease-out;">
-                    <div class="modal-body" style="text-align: center; padding: 24px 16px;">
-                        <div style="font-size: 36px; margin-bottom: 12px; line-height: 1;">⚠️</div>
-                        <h4 style="margin-bottom: 24px; color: var(--text-primary); font-weight: 500; font-size: 15px;">${escapeHtml(message)}</h4>
-                        <div style="display: flex; gap: 12px; justify-content: center;">
-                            <button class="btn" id="confirmCancelBtn" style="background: var(--bg-input); flex: 1;">${cancelText}</button>
-                            <button class="btn btn-danger" id="confirmOkBtn" style="flex: 1;">${confirmText}</button>
+                    <div class="modal-header">
+                        <h3>Confirmation</h3>
+                        <button class="modal-close" id="confirmCloseBtn">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group" style="margin-bottom: 24px;">
+                            <label style="font-size: 14px; color: var(--text-primary); line-height: 1.5; font-weight: normal;">${escapeHtml(message).replace(/\n/g, '<br>')}</label>
+                        </div>
+                        <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                            <button class="btn" id="confirmCancelBtn" style="background: var(--bg-input);">${cancelText}</button>
+                            <button class="btn btn-danger" id="confirmOkBtn">${confirmText}</button>
                         </div>
                     </div>
                 </div>
             `;
             document.body.appendChild(overlay);
 
-            document.getElementById('confirmOkBtn').onclick = () => {
+            const cleanup = (result) => {
                 overlay.remove();
-                resolve(true);
+                resolve(result);
             };
-            document.getElementById('confirmCancelBtn').onclick = () => {
-                overlay.remove();
-                resolve(false);
-            };
+
+            document.getElementById('confirmOkBtn').onclick = () => cleanup(true);
+            document.getElementById('confirmCancelBtn').onclick = () => cleanup(false);
+            document.getElementById('confirmCloseBtn').onclick = () => cleanup(false);
         });
     },
     prompt: async function (message, defaultValue = '', placeholder = '') {
@@ -282,16 +287,21 @@ const UI = {
             const overlay = document.createElement('div');
             overlay.className = 'modal-overlay active';
             overlay.style.zIndex = '9999';
-            // Simple string replacement for line breaks formatting
             const htmlMessage = escapeHtml(message).replace(/\n/g, '<br>');
             overlay.innerHTML = `
                 <div class="modal modal-sm" style="animation: fadeIn 0.15s ease-out;">
-                    <div class="modal-body" style="padding: 24px 16px;">
-                        <h4 style="margin-bottom: 16px; color: var(--text-primary); font-weight: 500; font-size: 15px; text-align: center;">${htmlMessage}</h4>
-                        <input type="text" id="uiPromptInput" class="text-input" style="margin-bottom: 20px;" placeholder="${placeholder}" value="${escapeHtml(defaultValue)}">
-                        <div style="display: flex; gap: 12px; justify-content: center;">
-                            <button class="btn" id="promptCancelBtn" style="background: var(--bg-input); flex: 1;">Cancel</button>
-                            <button class="btn btn-primary" id="promptOkBtn" style="flex: 1;">OK</button>
+                    <div class="modal-header">
+                        <h3>Input Required</h3>
+                        <button class="modal-close" id="promptCloseBtn">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group" style="margin-bottom: 24px;">
+                            <label style="margin-bottom: 12px; display: block;">${htmlMessage}</label>
+                            <input type="text" id="uiPromptInput" class="text-input" placeholder="${placeholder}" value="${escapeHtml(defaultValue)}">
+                        </div>
+                        <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                            <button class="btn" id="promptCancelBtn" style="background: var(--bg-input);">Cancel</button>
+                            <button class="btn btn-primary" id="promptOkBtn">OK</button>
                         </div>
                     </div>
                 </div>
@@ -300,21 +310,24 @@ const UI = {
 
             const inputEl = document.getElementById('uiPromptInput');
             inputEl.focus();
-            inputEl.select();
+            if (defaultValue) inputEl.select();
 
-            inputEl.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') document.getElementById('promptOkBtn').click();
-            });
-
-            document.getElementById('promptOkBtn').onclick = () => {
+            const cleanup = (isOk) => {
                 const val = inputEl.value;
                 overlay.remove();
-                resolve(val);
+                resolve(isOk ? val : null);
             };
-            document.getElementById('promptCancelBtn').onclick = () => {
-                overlay.remove();
-                resolve(null); // window.prompt returns null on cancel
-            };
+
+            document.getElementById('promptOkBtn').onclick = () => cleanup(true);
+            document.getElementById('promptCancelBtn').onclick = () => cleanup(false);
+            document.getElementById('promptCloseBtn').onclick = () => cleanup(false);
+
+            inputEl.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    cleanup(true);
+                }
+            });
         });
     }
 };
