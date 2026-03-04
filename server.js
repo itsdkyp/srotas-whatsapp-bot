@@ -960,6 +960,7 @@ function generateHourlyPattern(campaigns) {
 app.get('/api/settings', (req, res) => {
     const all = settingsDb.getAll();
     res.json({
+        theme: all.theme || 'dark',
         ai_provider: all.ai_provider || process.env.AI_PROVIDER || 'gemini',
         system_prompt: all.system_prompt || process.env.SYSTEM_PROMPT || 'You are a helpful assistant.',
         min_delay: all.min_delay || process.env.MIN_DELAY_MS || '8000',
@@ -970,7 +971,7 @@ app.get('/api/settings', (req, res) => {
 });
 
 app.put('/api/settings', (req, res) => {
-    const allowed = ['ai_provider', 'system_prompt', 'min_delay', 'max_delay', 'gemini_api_key', 'openai_api_key'];
+    const allowed = ['theme', 'ai_provider', 'system_prompt', 'min_delay', 'max_delay', 'gemini_api_key', 'openai_api_key'];
     for (const key of allowed) {
         if (req.body[key] !== undefined && req.body[key] !== '••••••••') {
             settingsDb.set(key, req.body[key]);

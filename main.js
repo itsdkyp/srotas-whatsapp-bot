@@ -63,6 +63,9 @@ function createWindow() {
     // Remove the default File/Edit/View menu completely
     mainWindow.removeMenu();
 
+    // Start fully maximized
+    mainWindow.maximize();
+
     // Allow Ctrl+R to still reload the window natively even without the menu bar
     mainWindow.webContents.on('before-input-event', (event, input) => {
         if (input.control && input.key.toLowerCase() === 'r') {

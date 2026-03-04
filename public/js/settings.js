@@ -27,13 +27,22 @@ async function loadSettings() {
     if (!settingsTheme) {
         settingsTheme = document.getElementById('settingsTheme');
         if (settingsTheme) {
-            settingsTheme.addEventListener('change', () => {
+            settingsTheme.addEventListener('change', async () => {
                 const theme = settingsTheme.value;
                 console.log('[Theme] Switching to:', theme);
+
+                // Cache locally for instantaneous boot
                 localStorage.setItem('theme', theme);
-                console.log('[Theme] Saved to localStorage:', localStorage.getItem('theme'));
                 applyTheme(theme);
-                console.log('[Theme] Applied, body classes:', document.body.className);
+
+                // Push to backend SQLite for definitive persistence across ports
+                try {
+                    await api('PUT', '/api/settings', { theme });
+                    console.log('[Theme] Seamlessly synced with database');
+                } catch (e) {
+                    console.error('[Theme] Failed to sync with database', e);
+                }
+
                 toast(`Switched to ${theme === 'light' ? 'Light' : 'Dark'} Mode`, 'success');
             });
         }

@@ -14,11 +14,15 @@ let io = null; // Socket.IO instance — set via init()
 function init(socketIO) {
     io = socketIO;
 
-    // Restore persisted sessions on startup
+    // Restore persisted sessions on startup with a stagger to prevent massive CPU spikes
     const saved = sessionDb.getAll();
+    let startupDelayMs = 0;
     for (const s of saved) {
         if (s.status !== 'removed') {
-            createClient(s.id, s.name);
+            setTimeout(() => {
+                createClient(s.id, s.name);
+            }, startupDelayMs);
+            startupDelayMs += 3500; // Stagger each additional session by 3.5 seconds
         }
     }
 }

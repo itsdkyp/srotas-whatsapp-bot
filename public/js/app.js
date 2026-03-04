@@ -5,12 +5,23 @@
 const socket = io();
 
 // ─── Apply Theme Immediately ───
-(function initTheme() {
+(async function initTheme() {
+    // Apply local cache immediately to prevent unstyled flash
     const savedTheme = localStorage.getItem('theme') || 'dark';
-    if (savedTheme === 'light') {
-        document.body.classList.add('light-theme');
-    } else {
-        document.body.classList.remove('light-theme');
+    if (savedTheme === 'light') document.body.classList.add('light-theme');
+    else document.body.classList.remove('light-theme');
+
+    try {
+        // Fetch source of truth from SQLite backend (since Electron randomizes ports)
+        const res = await fetch('/api/settings');
+        const data = await res.json();
+        if (data && data.theme) {
+            localStorage.setItem('theme', data.theme);
+            if (data.theme === 'light') document.body.classList.add('light-theme');
+            else document.body.classList.remove('light-theme');
+        }
+    } catch (e) {
+        console.error('Failed to load theme from backend');
     }
 })();
 
