@@ -60,6 +60,17 @@ function createWindow() {
         icon: path.join(__dirname, 'public', 'icon.png') // App window icon
     });
 
+    // Remove the default File/Edit/View menu completely
+    mainWindow.removeMenu();
+
+    // Allow Ctrl+R to still reload the window natively even without the menu bar
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+        if (input.control && input.key.toLowerCase() === 'r') {
+            mainWindow.reload();
+            event.preventDefault();
+        }
+    });
+
     // Start the Express server
     startServer();
 
