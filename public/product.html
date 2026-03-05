@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Srotas.bot - Product Showcase</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        .product-page {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 60px 20px;
+            color: var(--text-primary);
+        }
+
+        .hero {
+            text-align: center;
+            margin-bottom: 80px;
+        }
+
+        .hero h1 {
+            font-size: 48px;
+            font-weight: 700;
+            margin-bottom: 24px;
+            color: #fff;
+            line-height: 1.2;
+        }
+
+        .hero p {
+            font-size: 20px;
+            color: var(--text-secondary);
+            max-width: 700px;
+            margin: 0 auto 40px;
+            line-height: 1.6;
+        }
+
+        .hero .btn {
+            padding: 16px 32px;
+            font-size: 18px;
+            border-radius: 12px;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+            margin-bottom: 80px;
+        }
+
+        .feature-card {
+            background: var(--surface-light);
+            border: 1px solid var(--border-color);
+            padding: 32px;
+            border-radius: 16px;
+        }
+
+        .feature-icon {
+            font-size: 32px;
+            margin-bottom: 20px;
+            display: inline-block;
+            padding: 12px;
+            background: rgba(37, 211, 102, 0.1);
+            border-radius: 12px;
+        }
+
+        .feature-card h3 {
+            font-size: 20px;
+            margin-bottom: 12px;
+            color: #fff;
+        }
+
+        .feature-card p {
+            color: var(--text-secondary);
+            line-height: 1.5;
+            font-size: 15px;
+        }
+
+        .screenshot-section {
+            margin-bottom: 80px;
+        }
+
+        .screenshot-section h2 {
+            font-size: 32px;
+            margin-bottom: 16px;
+            color: #fff;
+        }
+
+        .screenshot-section>p {
+            font-size: 18px;
+            margin-bottom: 32px;
+            color: var(--text-secondary);
+            max-width: 800px;
+            line-height: 1.6;
+        }
+
+        .screenshot-block {
+            background: var(--surface-light);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 40px;
+            transition: transform 0.2s;
+        }
+
+        .screenshot-block:hover {
+            transform: translateY(-4px);
+            border-color: rgba(37, 211, 102, 0.3);
+        }
+
+        .screenshot-block img {
+            width: 100%;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .screenshot-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .screenshot-header h3 {
+            font-size: 24px;
+            color: #fff;
+            margin: 0;
+        }
+
+        .screenshot-header p {
+            margin: 0;
+            color: #25d366;
+            font-weight: 500;
+            font-size: 14px;
+            background: rgba(37, 211, 102, 0.1);
+            padding: 6px 12px;
+            border-radius: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 36px;
+            }
+
+            .screenshot-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+            }
+        }
+    </style>
+</head>
+
+<body class="dark-theme">
+    <div class="product-page">
+        <!-- Hero Section -->
+        <div class="hero">
+            <div style="display:inline-flex; align-items:center; gap:12px; margin-bottom:24px;">
+                <img src="/favicon.ico" alt="Logo" width="40" height="40"
+                    onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'%2325d366\'><path d=\'M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884M12.051 2.05c-5.518 0-10.009 4.49-10.01 10.006 0 1.765.461 3.492 1.338 5.013L2 22l5.064-1.328a10.003 10.003 0 004.985 1.332h.004c5.517 0 10.008-4.49 10.009-10.008a10.013 10.013 0 00-2.932-7.078A9.976 9.976 0 0012.053 2.05z\'/></svg>'}">
+                <span style="font-size:24px; font-weight:700; color:#25d366;">Srotas.bot</span>
+            </div>
+            <h1>Advanced WhatsApp Business Automation Platform</h1>
+            <p>Scale your communication with a self-hosted powerhouse. Manage infinite sessions, deploy smart AI agents,
+                and run bulk broadcast campaigns securely from your own infrastructure.</p>
+            <a href="index.html" class="btn btn-primary" style="text-decoration:none;">Open Live Interactive Demo</a>
+        </div>
+
+        <!-- Features Grid -->
+        <h2 style="font-size:32px; margin-bottom:32px; color:#fff;">Built for Scale & Security</h2>
+        <div class="feature-grid">
+            <div class="feature-card">
+                <span class="feature-icon">📱</span>
+                <h3>Infinite Sessions</h3>
+                <p>Add and manage multiple WhatsApp completely independent business numbers under one unified roof.
+                    Switch instantly between contexts.</p>
+            </div>
+            <div class="feature-card">
+                <span class="feature-icon">🚀</span>
+                <h3>Bulk Broadcasting</h3>
+                <p>Send thousands of personalized messages instantly via CSV uploads. Perfect for marketing, alerts, and
+                    mass customer re-engagement.</p>
+            </div>
+            <div class="feature-card">
+                <span class="feature-icon">🧠</span>
+                <h3>AI Support Agents</h3>
+                <p>Plug in your Gemini or OpenAI API keys and let artificial intelligence handle your tier-1 customer
+                    support dynamically 24/7.</p>
+            </div>
+            <div class="feature-card">
+                <span class="feature-icon">📊</span>
+                <h3>Deep Analytics</h3>
+                <p>Track delivery rates, message queues, AI success metrics, and volume via stunning interactive
+                    Chart.js dashboards.</p>
+            </div>
+            <div class="feature-card">
+                <span class="feature-icon">⚡</span>
+                <h3>Automated Quick Replies</h3>
+                <p>Not ready for full AI? Set up precise keyword triggers to automatically fire off pre-defined
+                    templates instantly to incoming queries.</p>
+            </div>
+            <div class="feature-card">
+                <span class="feature-icon">📋</span>
+                <h3>Rich Templates</h3>
+                <p>Design multi-media template messages featuring interactive buttons, images, videos, and personalized
+                    placeholder variables.</p>
+            </div>
+        </div>
+
+        <!-- Screenshots -->
+        <div class="screenshot-section">
+            <h2>Product Showcase</h2>
+            <p>Take a look inside the Srotas.bot dashboard and explore the premium dark-mode interface built for heavy
+                operational use.</p>
+
+            <div class="screenshot-block">
+                <div class="screenshot-header">
+                    <h3>Real-Time Analytics Dashboard</h3>
+                    <p>Metrics at a glance</p>
+                </div>
+                <img src="screenshots/dashboard.png" alt="Analytics Dashboard">
+            </div>
+
+            <div class="screenshot-block">
+                <div class="screenshot-header">
+                    <h3>Multi-Session Manager</h3>
+                    <p>Secure QR Authentication</p>
+                </div>
+                <img src="screenshots/sessions.png" alt="Session Manager">
+            </div>
+
+            <div class="screenshot-block">
+                <div class="screenshot-header">
+                    <h3>Campaign Manager</h3>
+                    <p>Bulk sending and retries</p>
+                </div>
+                <img src="screenshots/campaigns.png" alt="Campaign Manager">
+            </div>
+
+            <div class="screenshot-block">
+                <div class="screenshot-header">
+                    <h3>Auto-Responder Configuration</h3>
+                    <p>Keyword & Event driven replies</p>
+                </div>
+                <img src="screenshots/auto-responder.png" alt="Auto Responder">
+            </div>
+        </div>
+
+        <div
+            style="text-align:center; padding: 40px 0; border-top: 1px solid var(--border-color); color: var(--text-muted);">
+            <p>© 2026 Srotas.tech Platform</p>
+        </div>
+    </div>
+</body>
+
+</html>
