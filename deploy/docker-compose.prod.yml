@@ -1,6 +1,7 @@
 services:
   whatsapp-bot:
     image: itsdkyp/whatsapp-bot:latest
+    pull_policy: always
     container_name: whatsapp-bot
     restart: unless-stopped
     shm_size: '256m' # Chromium needs this after QR auth to load chats
