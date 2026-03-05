@@ -44,22 +44,39 @@ const MOCK_CONTACTS = [
 const MOCK_GROUPS = ['Customers', 'Leads'];
 
 const MOCK_ANALYTICS = {
-    totalMessages: 1284,
-    peopleReached: 847,
-    mediaSent: 92,
-    deliveryRate: 96.4,
-    messagesChange: 18,
-    peopleChange: 12,
-    mediaChange: 5,
-    deliveryChange: 2,
+    stats: {
+        totalMessages: 1284,
+        peopleReached: 847,
+        mediaSent: 92,
+        deliveryRate: 96.4
+    },
+    messagesOverTime: {
+        labels: ['Feb 20', 'Feb 21', 'Feb 22', 'Feb 23', 'Feb 24', 'Feb 25', 'Feb 26', 'Feb 27', 'Feb 28', 'Mar 1', 'Mar 2', 'Mar 3', 'Mar 4', 'Mar 5'],
+        sent: [42, 78, 55, 134, 98, 167, 112, 89, 201, 145, 178, 85, 134, 98],
+        failed: [1, 3, 2, 5, 0, 8, 4, 1, 6, 3, 5, 2, 4, 1]
+    },
+    hourlyPattern: {
+        labels: ['8am', '9am', '10am', '11am', '12pm', '1pm', '2pm', '3pm', '4pm', '5pm', '6pm', '7pm'],
+        counts: [15, 45, 120, 85, 60, 40, 55, 90, 150, 200, 110, 45]
+    },
     topCampaigns: [
-        { name: 'Diwali Promo 2024', sent: 523, delivered: 512, failed: 11 },
-        { name: 'Product Launch Q1', sent: 389, delivered: 371, failed: 18 },
-        { name: 'Customer Feedback Ask', sent: 247, delivered: 240, failed: 7 }
+        { id: 'camp-001', name: 'Diwali Promo 2024', sent: 523, date: new Date(Date.now() - 7 * 86400000).toISOString() },
+        { id: 'camp-002', name: 'Product Launch Q1', sent: 389, date: new Date(Date.now() - 2 * 86400000).toISOString() },
+        { id: 'camp-003', name: 'Customer Feedback Ask', sent: 247, date: new Date(Date.now() - 14 * 86400000).toISOString() }
     ],
-    dailyMessages: [42, 78, 55, 134, 98, 167, 112, 89, 201, 145, 178, 85, 134, 98]
-        .map((v, i) => ({ date: new Date(Date.now() - (13 - i) * 86400000).toISOString().slice(0, 10), count: v })),
-    sessions: MOCK_SESSIONS
+    sessions: MOCK_SESSIONS,
+    aiAnalytics: {
+        totalConversations: 342,
+        messagesHandled: 891,
+        avgResponseTime: 1.2,
+        successRate: 94
+    },
+    quickReplyAnalytics: {
+        totalTriggers: 512,
+        uniqueUsers: 184,
+        avgResponseTime: 45,
+        mostUsed: '/price'
+    }
 };
 
 const MOCK_CAMPAIGNS = [
