@@ -50,11 +50,23 @@ function toast(message, type = 'info') {
 const navItems = document.querySelectorAll('.nav-item');
 const pages = document.querySelectorAll('.page');
 
+const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+const sidebar = document.querySelector('.sidebar');
+
+if (mobileMenuBtn && sidebar) {
+    mobileMenuBtn.addEventListener('click', () => {
+        sidebar.classList.toggle('open');
+    });
+}
+
 navItems.forEach(item => {
     item.addEventListener('click', (e) => {
         e.preventDefault();
         const pageName = item.dataset.page;
         navigateTo(pageName);
+        if (window.innerWidth <= 768 && sidebar) {
+            sidebar.classList.remove('open');
+        }
     });
 });
 
