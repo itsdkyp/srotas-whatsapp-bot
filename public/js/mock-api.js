@@ -187,9 +187,9 @@ const MOCK_TEMPLATES = [
 ];
 
 const MOCK_QUICK_REPLIES = [
-    { id: 'qr-001', triggerKey: 'price', label: 'Pricing Info', response: 'Our pricing starts at ₹999/month. Reply PLANS for full details.', mediaPath: null },
-    { id: 'qr-002', triggerKey: 'demo', label: 'Book Demo', response: 'Book your free demo at https://srotas.tech/demo — takes 2 minutes!', mediaPath: null },
-    { id: 'qr-003', triggerKey: 'support', label: 'Support Info', response: 'Our support team is available Mon–Sat 9am–6pm IST. Email: hi@srotas.tech', mediaPath: null }
+    { id: 'qr-001', trigger_key: 'price', label: 'Pricing Info', response: 'Our pricing starts at ₹999/month. Reply PLANS for full details.', media_path: null, enabled: true },
+    { id: 'qr-002', trigger_key: 'demo', label: 'Book Demo', response: 'Book your free demo at https://srotas.tech/demo — takes 2 minutes!', media_path: null, enabled: true },
+    { id: 'qr-003', trigger_key: 'support', label: 'Support Info', response: 'Our support team is available Mon–Sat 9am–6pm IST. Email: hi@srotas.tech', media_path: null, enabled: false }
 ];
 
 const MOCK_SETTINGS = {
@@ -397,9 +397,19 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     document.body.prepend(banner);
 
-    // Push layout down so the banner doesn't overlap the sidebar
+    // Push layout down so the banner doesn't overlap the sidebar or mobile header
     const sidebar = document.querySelector('.sidebar');
     const main = document.querySelector('.main-content');
     if (sidebar) sidebar.style.paddingTop = '34px';
     if (main) main.style.paddingTop = '34px';
+
+    // Inject CSS for fixed mobile header offset
+    const style = document.createElement('style');
+    style.innerHTML = `
+        .mobile-header { top: 34px !important; }
+        @media (max-width: 768px) {
+            .sidebar { top: 94px !important; height: calc(100vh - 94px) !important; padding-top: 0 !important; }
+        }
+    `;
+    document.head.appendChild(style);
 });
