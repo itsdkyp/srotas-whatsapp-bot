@@ -31,7 +31,10 @@
       "icon": "public/icon.ico"
     },
     "nsis": {
-      "createDesktopShortcut": "always"
+      "guid": "com.srotas.whatsappbot",
+      "createDesktopShortcut": "always",
+      "deleteAppDataOnUninstall": false,
+      "installerSidebar": null
     },
     "mac": {
       "target": [
