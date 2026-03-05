@@ -54,6 +54,7 @@ async function loadSettings() {
         settingsTheme.value = savedTheme;
     }
     applyTheme(savedTheme);
+    loadLicenseInfo();
 }
 
 // ─── Theme Switcher ───
@@ -101,3 +102,62 @@ saveSettingsBtn.addEventListener('click', async () => {
     saveSettingsBtn.disabled = false;
     saveSettingsBtn.textContent = '💾 Save Settings';
 });
+
+// ─── License Info ───
+
+async function loadLicenseInfo() {
+    try {
+        const data = await api('GET', '/api/license-status');
+
+        const keyEl = document.getElementById('licenseKeyMasked');
+        const badgeEl = document.getElementById('licenseStatusBadge');
+        const expiryEl = document.getElementById('licenseExpiry');
+        const daysEl = document.getElementById('licenseDaysRemaining');
+        if (!keyEl) return;
+
+        if (!data.activated) {
+            badgeEl.textContent = 'NOT ACTIVATED';
+            badgeEl.style.background = 'rgba(var(--danger-rgb,220,53,69),0.15)';
+            badgeEl.style.color = 'var(--danger)';
+            return;
+        }
+
+        if (data.isLifetime) {
+            keyEl.textContent = 'SROTAS-EASTER-EGG';
+            expiryEl.textContent = 'Never';
+            daysEl.textContent = '∞';
+            daysEl.style.color = '#a855f7';
+            badgeEl.textContent = '✨ LIFETIME';
+            badgeEl.style.background = 'rgba(168,85,247,0.15)';
+            badgeEl.style.color = '#a855f7';
+            return;
+        }
+
+        keyEl.textContent = data.keyMasked || '—';
+        expiryEl.textContent = data.expiryDate
+            ? new Date(data.expiryDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+            : '—';
+
+        const days = data.daysRemaining ?? 0;
+        daysEl.textContent = days;
+
+        if (days > 30) {
+            daysEl.style.color = '#22c55e';
+            badgeEl.textContent = '✅ ACTIVE';
+            badgeEl.style.background = 'rgba(34,197,94,0.15)';
+            badgeEl.style.color = '#22c55e';
+        } else if (days > 7) {
+            daysEl.style.color = '#f59e0b';
+            badgeEl.textContent = '⚠️ EXPIRING SOON';
+            badgeEl.style.background = 'rgba(245,158,11,0.15)';
+            badgeEl.style.color = '#f59e0b';
+        } else {
+            daysEl.style.color = 'var(--danger)';
+            badgeEl.textContent = '🔴 CRITICAL';
+            badgeEl.style.background = 'rgba(220,53,69,0.15)';
+            badgeEl.style.color = 'var(--danger)';
+        }
+    } catch (e) {
+        console.error('[License] Failed to load license info', e);
+    }
+}

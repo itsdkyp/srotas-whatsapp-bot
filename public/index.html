@@ -451,6 +451,42 @@
               </div>
             </div>
 
+            <!-- License Section -->
+            <div class="settings-section-card">
+              <div class="settings-section-header">
+                <h2>🔑 License</h2>
+              </div>
+              <div class="settings-subsection">
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+                  <div>
+                    <div
+                      style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px;">
+                      Activation Key</div>
+                    <div id="licenseKeyMasked"
+                      style="font-family:monospace; font-size:13px; color:var(--text-primary); letter-spacing:2px;">—
+                    </div>
+                  </div>
+                  <span id="licenseStatusBadge"
+                    style="font-size:11px; font-weight:700; padding:4px 10px; border-radius:20px; background:var(--bg-secondary); color:var(--text-muted);">CHECKING</span>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                  <div style="background:var(--bg-secondary); border-radius:10px; padding:14px; text-align:center;">
+                    <div
+                      style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">
+                      Expires On</div>
+                    <div id="licenseExpiry" style="font-weight:600; color:var(--text-primary); font-size:14px;">—</div>
+                  </div>
+                  <div style="background:var(--bg-secondary); border-radius:10px; padding:14px; text-align:center;">
+                    <div
+                      style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">
+                      Days Remaining</div>
+                    <div id="licenseDaysRemaining" style="font-weight:700; font-size:22px; color:var(--text-primary);">—
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <button class="btn btn-primary btn-lg" id="saveSettingsBtn">💾 Save Settings</button>
           </div>
 

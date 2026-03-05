@@ -42,7 +42,31 @@ scheduler.init(io);
 // ═══════════════════════════════════════
 
 app.get('/api/license-status', (req, res) => {
-    res.json({ activated: license.isActivated() });
+    const activated = license.isActivated();
+    if (!activated) return res.json({ activated: false });
+
+    const { settings: settingsDb } = require('./src/db/database');
+    const savedKey = settingsDb.get('license_key');
+    let expiryDate = null, daysRemaining = null, isLifetime = false;
+
+    if (savedKey === 'SROTAS-EASTER-EGG-2026') {
+        isLifetime = true;
+    } else if (savedKey) {
+        try {
+            const cleanKey = savedKey.replace(/-/g, '').toUpperCase();
+            const EPOCH = new Date('2024-01-01T00:00:00Z').getTime();
+            const daysSinceEpoch = parseInt(cleanKey.slice(0, 4), 16);
+            const expiryMs = EPOCH + (daysSinceEpoch + 1) * 24 * 60 * 60 * 1000;
+            expiryDate = new Date(expiryMs).toISOString().split('T')[0];
+            daysRemaining = Math.max(0, Math.ceil((expiryMs - Date.now()) / (24 * 60 * 60 * 1000)));
+        } catch (e) { /* ignore decode errors */ }
+    }
+
+    const keyMasked = savedKey
+        ? savedKey.replace(/-/g, '').slice(0, 4) + '-****-****-' + savedKey.replace(/-/g, '').slice(-4)
+        : null;
+
+    res.json({ activated, isLifetime, expiryDate, daysRemaining, keyMasked });
 });
 
 app.post('/api/activate', (req, res) => {
