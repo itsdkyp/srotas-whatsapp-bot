@@ -7,9 +7,23 @@
  */
 
 // ── 1. Stub Socket.IO before app.js calls io() ──────────────────────────────
+const _mockSocketListeners = {};
 window.io = function () {
-    return { on() { }, emit() { }, off() { }, disconnect() { } };
+    return {
+        on(event, fn) {
+            if (!_mockSocketListeners[event]) _mockSocketListeners[event] = [];
+            _mockSocketListeners[event].push(fn);
+        },
+        emit() { },
+        off() { },
+        disconnect() { }
+    };
 };
+
+function triggerMockSocket(event, payload) {
+    const fns = _mockSocketListeners[event];
+    if (fns) fns.forEach(fn => fn(payload));
+}
 
 // ── 2. Mock Data ─────────────────────────────────────────────────────────────
 
@@ -157,18 +171,18 @@ const MOCK_SCHEDULES = [
 const MOCK_TEMPLATES = [
     {
         id: 'tpl-001', name: 'Festival Greeting',
-        body: 'Hi {{name}},\n\nSeason\'s greetings from {{company}}! Wishing you and your family a wonderful time.\n\nBest regards,\nTeam Srotas',
-        createdAt: new Date(Date.now() - 30 * 86400000).toISOString()
+        content: 'Hi {{name}},\n\nSeason\'s greetings from {{company}}! Wishing you and your family a wonderful time.\n\nBest regards,\nTeam Srotas',
+        created_at: new Date(Date.now() - 30 * 86400000).toISOString()
     },
     {
         id: 'tpl-002', name: 'Follow-Up Message',
-        body: 'Hello {{name}},\n\nWe wanted to follow up about our recent conversation. Would you be available for a quick call this week?\n\nWith regards,\n{{company}}',
-        createdAt: new Date(Date.now() - 15 * 86400000).toISOString()
+        content: 'Hello {{name}},\n\nWe wanted to follow up about our recent conversation. Would you be available for a quick call this week?\n\nWith regards,\n{{company}}',
+        created_at: new Date(Date.now() - 15 * 86400000).toISOString()
     },
     {
         id: 'tpl-003', name: 'Product Launch',
-        body: 'Hi {{name}},\n\nExciting news! We just launched our newest product and as a valued partner of {{company}}, you\'re among the first to know.\n\nClick here to learn more: https://srotas.tech\n\nCheers,\nThe team',
-        createdAt: new Date(Date.now() - 5 * 86400000).toISOString()
+        content: 'Hi {{name}},\n\nExciting news! We just launched our newest product and as a valued partner of {{company}}, you\'re among the first to know.\n\nClick here to learn more: https://srotas.tech\n\nCheers,\nThe team',
+        created_at: new Date(Date.now() - 5 * 86400000).toISOString()
     }
 ];
 
@@ -232,8 +246,29 @@ function _mockRoute(method, path, body) {
             const g = new URL('http://x' + path).searchParams.get('group');
             return g ? MOCK_CONTACTS.filter(c => c.group === g) : MOCK_CONTACTS;
         }
-        if (path.startsWith('/api/analytics'))
-            return MOCK_ANALYTICS;
+        if (path.startsWith('/api/analytics')) {
+            const range = new URL('http://x' + path).searchParams.get('range') || '30days';
+            const clone = JSON.parse(JSON.stringify(MOCK_ANALYTICS));
+
+            // Generate dummy chart data based on range
+            const days = range === '7days' ? 7 : range === '14days' ? 14 : range === 'today' ? 1 : 30;
+            const mult = days === 1 ? 0.1 : days === 7 ? 0.4 : 1;
+
+            clone.stats.totalMessages = Math.floor(1284 * mult);
+            clone.stats.peopleReached = Math.floor(847 * mult);
+            clone.stats.mediaSent = Math.floor(92 * mult);
+
+            if (days === 1) { // Hourly chart
+                clone.messagesOverTime.labels = ['10am', '11am', '12pm', '1pm', '2pm', '3pm', '4pm', '5pm'];
+                clone.messagesOverTime.sent = [12, 45, 23, 89, 44, 18, 5, 33];
+                clone.messagesOverTime.failed = [0, 1, 0, 2, 0, 0, 0, 1];
+            } else { // Daily chart
+                clone.messagesOverTime.labels = Array.from({ length: days }, (_, i) => `Day ${i + 1}`);
+                clone.messagesOverTime.sent = Array.from({ length: days }, () => Math.floor(10 + Math.random() * 80));
+                clone.messagesOverTime.failed = Array.from({ length: days }, () => Math.floor(Math.random() * 5));
+            }
+            return clone;
+        }
         if (/\/api\/campaigns\/[^/]+$/.test(path)) {
             const id = path.split('/').pop();
             return MOCK_CAMPAIGNS.find(c => c.id === id) || MOCK_CAMPAIGNS[0];
@@ -255,8 +290,31 @@ function _mockRoute(method, path, body) {
 
     // ─ POST / PUT / DELETE ─
     if (method === 'POST') {
-        if (path === '/api/sessions')
-            return { id: 'demo-' + Math.random().toString(36).slice(2, 6), name: body?.name || 'Demo', status: 'initializing', qr: null };
+        if (path === '/api/sessions') {
+            const id = 'demo-' + Math.random().toString(36).slice(2, 6);
+            const name = body?.name || 'Demo';
+            MOCK_SESSIONS.push({ id, name, status: 'qr_pending', phone: null, autoReplyEnabled: true, aiRepliesEnabled: true, quickRepliesEnabled: true, qr: null });
+
+            setTimeout(() => {
+                triggerMockSocket('session:qr', { sessionId: id, qr: 'https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=SROTAS-DEMO-QR' });
+            }, 1500);
+
+            return { sessionId: id, name };
+        }
+        if (path.includes('/relink')) {
+            const sid = path.split('/')[3];
+            const s = MOCK_SESSIONS.find(x => x.id === sid);
+            if (s) s.status = 'qr_pending';
+            setTimeout(() => {
+                triggerMockSocket('session:qr', { sessionId: sid, qr: 'https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=SROTAS-REAUTH-QR' });
+            }, 1000);
+            return { success: true };
+        }
+        if (path.includes('/restart')) {
+            const sid = path.split('/')[3];
+            setTimeout(() => triggerMockSocket('session:ready', { sessionId: sid, phone: '919000000000' }), 2000);
+            return { success: true };
+        }
         if (path === '/api/messages/preview')
             return { preview: (body?.template || '').replace(/{{(\w+)}}/g, (_, k) => body?.contact?.[k] || `[${k}]`) };
         if (path === '/api/messages/send-bulk') {
@@ -291,6 +349,20 @@ function _mockRoute(method, path, body) {
         if (path.includes('/ai-replies')) { const s = MOCK_SESSIONS.find(x => path.includes(x.id)); if (s) s.aiRepliesEnabled = body?.enabled; return { success: true }; }
         if (path.includes('/quick-replies')) { const s = MOCK_SESSIONS.find(x => path.includes(x.id)); if (s) s.quickRepliesEnabled = body?.enabled; return { success: true }; }
         if (path.includes('/toggle')) { const sc = MOCK_SCHEDULES.find(x => path.includes(x.id)); if (sc) sc.enabled = body?.enabled; return { success: true }; }
+    }
+
+    if (method === 'DELETE') {
+        if (path.startsWith('/api/campaigns/')) return { success: true };
+        if (path.startsWith('/api/templates/')) return { success: true };
+        if (path.startsWith('/api/quick-replies/')) return { success: true };
+        if (path.startsWith('/api/schedules/')) return { success: true };
+        if (path.startsWith('/api/sessions/')) {
+            const sid = path.split('/')[3];
+            const idx = MOCK_SESSIONS.findIndex(x => x.id === sid);
+            if (idx > -1) MOCK_SESSIONS.splice(idx, 1);
+            setTimeout(() => triggerMockSocket('session:disconnected', { sessionId: sid }), 100);
+            return { success: true };
+        }
     }
 
     return { success: true };
