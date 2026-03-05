@@ -74,9 +74,9 @@ const MOCK_ANALYTICS = {
         counts: [15, 45, 120, 85, 60, 40, 55, 90, 150, 200, 110, 45]
     },
     topCampaigns: [
-        { id: 'camp-001', name: 'Diwali Promo 2024', sent: 523, date: new Date(Date.now() - 7 * 86400000).toISOString() },
-        { id: 'camp-002', name: 'Product Launch Q1', sent: 389, date: new Date(Date.now() - 2 * 86400000).toISOString() },
-        { id: 'camp-003', name: 'Customer Feedback Ask', sent: 247, date: new Date(Date.now() - 14 * 86400000).toISOString() }
+        { id: 1, name: 'Diwali Promo 2024', sent: 523, date: new Date(Date.now() - 7 * 86400000).toISOString() },
+        { id: 2, name: 'Product Launch Q1', sent: 389, date: new Date(Date.now() - 2 * 86400000).toISOString() },
+        { id: 3, name: 'Customer Feedback Ask', sent: 247, date: new Date(Date.now() - 14 * 86400000).toISOString() }
     ],
     sessions: MOCK_SESSIONS,
     aiAnalytics: {
@@ -95,7 +95,7 @@ const MOCK_ANALYTICS = {
 
 const MOCK_CAMPAIGNS = [
     {
-        id: 'camp-001', name: 'Diwali Promo 2024',
+        id: 1, name: 'Diwali Promo 2024',
         sessionId: 'sess-a1b2', sessionName: 'Business Account',
         groupName: 'Customers', status: 'completed',
         total: 5, sent: 5, failed: 0, skipped: 0,
@@ -110,7 +110,7 @@ const MOCK_CAMPAIGNS = [
         ]
     },
     {
-        id: 'camp-002', name: 'Product Launch Q1',
+        id: 2, name: 'Product Launch Q1',
         sessionId: 'sess-a1b2', sessionName: 'Business Account',
         groupName: 'Leads', status: 'running',
         total: 10, sent: 6, failed: 2, skipped: 0,
@@ -125,7 +125,7 @@ const MOCK_CAMPAIGNS = [
         ]
     },
     {
-        id: 'camp-003', name: 'Customer Feedback Ask',
+        id: 3, name: 'Customer Feedback Ask',
         sessionId: 'sess-c3d4', sessionName: 'Customer Support',
         groupName: 'Customers', status: 'completed',
         total: 2, sent: 2, failed: 0, skipped: 0,
@@ -271,7 +271,7 @@ function _mockRoute(method, path, body) {
         }
         if (/\/api\/campaigns\/[^/]+$/.test(path)) {
             const id = path.split('/').pop();
-            return MOCK_CAMPAIGNS.find(c => c.id === id) || MOCK_CAMPAIGNS[0];
+            return MOCK_CAMPAIGNS.find(c => c.id == id) || MOCK_CAMPAIGNS[0];
         }
         if (path.startsWith('/api/campaigns'))
             return MOCK_CAMPAIGNS;
