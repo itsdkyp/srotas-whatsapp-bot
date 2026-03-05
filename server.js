@@ -89,6 +89,39 @@ app.post('/api/activate', (req, res) => {
     }
 });
 
+// ─── Admin: Key Generator (Easter egg only) ───
+app.post('/api/admin/generate-key', (req, res) => {
+    const { settings: settingsDb } = require('./src/db/database');
+    const savedKey = settingsDb.get('license_key');
+    if (savedKey !== 'SROTAS-EASTER-EGG-2026') {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+    const days = parseInt(req.body.days);
+    if (!days || days < 1 || days > 9999) {
+        return res.status(400).json({ error: 'Invalid duration. Must be 1–9999 days.' });
+    }
+    try {
+        const key = license.generateKey(days);
+        const expiryDate = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        // Persist to history
+        let history = [];
+        try { history = JSON.parse(settingsDb.get('admin_issued_keys') || '[]'); } catch (e) { }
+        history.unshift({ key, days, expiryDate, generatedAt: new Date().toISOString() });
+        settingsDb.set('admin_issued_keys', JSON.stringify(history.slice(0, 100)));
+        res.json({ key, expiryDate, days });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/admin/history', (req, res) => {
+    const { settings: settingsDb } = require('./src/db/database');
+    const savedKey = settingsDb.get('license_key');
+    if (savedKey !== 'SROTAS-EASTER-EGG-2026') return res.status(403).json({ error: 'Forbidden' });
+    try { res.json(JSON.parse(settingsDb.get('admin_issued_keys') || '[]')); }
+    catch (e) { res.json([]); }
+});
+
 // ═══════════════════════════════════════
 // API ROUTES — Sessions
 // ═══════════════════════════════════════

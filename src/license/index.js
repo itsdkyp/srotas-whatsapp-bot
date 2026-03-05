@@ -69,5 +69,17 @@ function activate(key) {
 module.exports = {
     isActivated,
     activate,
-    validateLicense
+    validateLicense,
+    generateKey(days) {
+        const expiryDate = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+        const daysSinceEpoch = Math.floor((expiryDate.getTime() - EPOCH) / (24 * 60 * 60 * 1000));
+        const expiryHex = daysSinceEpoch.toString(16).toUpperCase().padStart(4, '0');
+        const randHex = crypto.randomBytes(2).toString('hex').toUpperCase();
+        const payload = expiryHex + randHex;
+        const hmac = crypto.createHmac('sha256', LICENSE_SECRET);
+        hmac.update(payload);
+        const signature = hmac.digest('hex').toUpperCase().slice(0, 8);
+        const rawKey = payload + signature;
+        return rawKey.match(/.{4}/g).join('-');
+    }
 };

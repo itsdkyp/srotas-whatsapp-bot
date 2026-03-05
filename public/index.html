@@ -81,6 +81,12 @@
           <span class="nav-icon">ℹ️</span>
           <span class="nav-label">Help</span>
         </a>
+        <!-- Admin Panel — hidden until Easter Egg license detected -->
+        <a href="#" class="nav-item" data-page="admin" id="adminNavItem"
+          style="display:none; background: linear-gradient(135deg, rgba(168,85,247,0.15), rgba(99,102,241,0.1)); border: 1px solid rgba(168,85,247,0.3); border-radius: 8px; margin-top: 4px;">
+          <span class="nav-icon">🛡️</span>
+          <span class="nav-label" style="color:#a855f7; font-weight:700;">Admin</span>
+        </a>
       </nav>
       <div class="sidebar-footer">
         <div class="status-indicator">
@@ -476,6 +482,7 @@
                       Expires On</div>
                     <div id="licenseExpiry" style="font-weight:600; color:var(--text-primary); font-size:14px;">—</div>
                   </div>
+
                   <div style="background:var(--bg-secondary); border-radius:10px; padding:14px; text-align:center;">
                     <div
                       style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">
@@ -507,6 +514,83 @@
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Admin Panel Page (Easter Egg holders only) -->
+      <div class="page" id="page-admin">
+        <div class="page-header">
+          <h1>🛡️ License Manager</h1>
+          <p style="color:var(--text-muted); font-size:14px; margin-top:4px;">Admin Panel · Easter Egg Access Only</p>
+        </div>
+
+        <!-- Key Generator Card -->
+        <div class="card" style="margin-bottom:24px;">
+          <div class="card-header"
+            style="border-bottom:1px solid var(--border-color); padding-bottom:16px; margin-bottom:20px;">
+            <h2 style="margin:0;">⚡ Generate License Key</h2>
+          </div>
+          <div class="card-body">
+            <div class="form-group" style="margin-bottom:20px;">
+              <label>Quick Duration</label>
+              <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;" id="durationPresets">
+                <button class="btn" data-days="30">30 Days</button>
+                <button class="btn" data-days="60">2 Months</button>
+                <button class="btn" data-days="90">3 Months</button>
+                <button class="btn" data-days="180">6 Months</button>
+                <button class="btn" data-days="365">1 Year</button>
+                <button class="btn" data-days="730">2 Years</button>
+                <button class="btn" data-days="3650">10 Years</button>
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:20px;">
+              <label>Custom Days</label>
+              <input type="number" id="adminCustomDays" class="text-input" placeholder="e.g. 45" min="1" max="9999"
+                style="max-width:220px;">
+            </div>
+            <button class="btn btn-primary" id="adminGenerateBtn"
+              style="background:linear-gradient(135deg,#a855f7,#6366f1); border:none;">⚡ Generate Key</button>
+            <div id="adminKeyOutput"
+              style="display:none; margin-top:24px; padding:20px; background:var(--bg-secondary); border-radius:12px; border:1px solid rgba(168,85,247,0.3);">
+              <div
+                style="font-size:11px; color:#a855f7; text-transform:uppercase; letter-spacing:1px; font-weight:700; margin-bottom:10px;">
+                Generated Key</div>
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <input readonly id="adminKeyValue" class="text-input"
+                  style="font-family:monospace; font-size:15px; letter-spacing:3px; font-weight:700; flex:1; min-width:280px;">
+                <button class="btn" id="adminCopyBtn">📋 Copy</button>
+              </div>
+              <div id="adminKeyMeta" style="margin-top:10px; font-size:13px; color:var(--text-muted);"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Issued Keys History -->
+        <div class="card">
+          <div class="card-header"
+            style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-color); padding-bottom:16px; margin-bottom:4px;">
+            <h2 style="margin:0;">📋 Issued Keys</h2>
+            <button class="btn" id="adminRefreshHistoryBtn" style="font-size:12px;">🔄 Refresh</button>
+          </div>
+          <div style="overflow-x:auto;">
+            <table style="width:100%; border-collapse:collapse; font-size:13px;">
+              <thead>
+                <tr style="color:var(--text-muted); text-transform:uppercase; font-size:11px; letter-spacing:0.5px;">
+                  <th style="text-align:left; padding:12px 8px;">Key</th>
+                  <th style="text-align:center; padding:12px 8px;">Days</th>
+                  <th style="text-align:center; padding:12px 8px;">Expires</th>
+                  <th style="text-align:center; padding:12px 8px;">Generated</th>
+                  <th style="text-align:center; padding:12px 8px;"></th>
+                </tr>
+              </thead>
+              <tbody id="adminHistoryBody">
+                <tr>
+                  <td colspan="5" style="text-align:center; padding:24px; color:var(--text-muted);">No keys generated
+                    yet</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -1267,6 +1351,7 @@
   <script src="/js/quickreplies.js"></script>
   <script src="/js/scheduler.js"></script>
   <script src="/js/settings.js"></script>
+  <script src="/js/admin.js"></script>
   <script src="/js/help.js"></script>
 </body>
 

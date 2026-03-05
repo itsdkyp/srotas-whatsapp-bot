@@ -201,6 +201,19 @@ window.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('activationOverlay').style.display = 'none';
             document.getElementById('mainAppContainer').style.display = 'flex';
             if (typeof loadDashboard === 'function') loadDashboard();
+
+            // Reveal admin panel nav for Easter Egg holders
+            if (data.isLifetime) {
+                const adminNav = document.getElementById('adminNavItem');
+                if (adminNav) {
+                    adminNav.style.display = 'flex';
+                    // Register it in the SPA router since it was hidden at init time
+                    adminNav.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        navigateTo('admin');
+                    });
+                }
+            }
         }
     } catch (err) {
         console.error('Failed to check license status', err);
