@@ -85,21 +85,42 @@ const MOCK_CAMPAIGNS = [
         sessionId: 'sess-a1b2', sessionName: 'Business Account',
         groupName: 'Customers', status: 'completed',
         total: 5, sent: 5, failed: 0, skipped: 0,
-        createdAt: new Date(Date.now() - 7 * 86400000).toISOString()
+        createdAt: new Date(Date.now() - 7 * 86400000).toISOString(),
+        durationMs: 45000,
+        messages: [
+            { contact_name: 'Rahul Sharma', contact_phone: '+919876543210', status: 'sent', message_content: 'Hi Rahul, Happy Diwali!', sent_at: new Date().toISOString() },
+            { contact_name: 'Priya Patel', contact_phone: '+919876543211', status: 'sent', message_content: 'Hi Priya, Happy Diwali!', sent_at: new Date().toISOString() },
+            { contact_name: 'Arjun Mehta', contact_phone: '+919876543212', status: 'sent', message_content: 'Hi Arjun, Happy Diwali!', sent_at: new Date().toISOString() },
+            { contact_name: 'Sneha Rathi', contact_phone: '+919876543213', status: 'sent', message_content: 'Hi Sneha, Happy Diwali!', sent_at: new Date().toISOString() },
+            { contact_name: 'Vikram Singh', contact_phone: '+919876543214', status: 'sent', message_content: 'Hi Vikram, Happy Diwali!', sent_at: new Date().toISOString() }
+        ]
     },
     {
         id: 'camp-002', name: 'Product Launch Q1',
         sessionId: 'sess-a1b2', sessionName: 'Business Account',
         groupName: 'Leads', status: 'running',
-        total: 10, sent: 6, failed: 0, skipped: 0,
-        createdAt: new Date(Date.now() - 2 * 86400000).toISOString()
+        total: 10, sent: 6, failed: 2, skipped: 0,
+        createdAt: new Date(Date.now() - 2 * 86400000).toISOString(),
+        durationMs: 82000,
+        messages: [
+            { contact_name: 'Ananya Joshi', contact_phone: '+919876543220', status: 'sent', message_content: 'Hi Ananya, check out our new launch!', sent_at: new Date().toISOString() },
+            { contact_name: 'Rohit Kumar', contact_phone: '+919876543221', status: 'failed', error: 'Invalid number', message_content: 'Hi Rohit, check out our new launch!', sent_at: new Date().toISOString() },
+            { contact_name: 'Meera Nair', contact_phone: '+919876543222', status: 'sent', message_content: 'Hi Meera, check out our new launch!', sent_at: new Date().toISOString() },
+            { contact_name: 'Aditya Gupta', contact_phone: '+919876543223', status: 'queued', message_content: 'Hi Aditya, check out our new launch!' },
+            { contact_name: 'Kavitha Reddy', contact_phone: '+919876543224', status: 'queued', message_content: 'Hi Kavitha, check out our new launch!' }
+        ]
     },
     {
         id: 'camp-003', name: 'Customer Feedback Ask',
         sessionId: 'sess-c3d4', sessionName: 'Customer Support',
         groupName: 'Customers', status: 'completed',
-        total: 5, sent: 5, failed: 0, skipped: 0,
-        createdAt: new Date(Date.now() - 14 * 86400000).toISOString()
+        total: 2, sent: 2, failed: 0, skipped: 0,
+        createdAt: new Date(Date.now() - 14 * 86400000).toISOString(),
+        durationMs: 16000,
+        messages: [
+            { contact_name: 'Rahul Sharma', contact_phone: '+919876543210', status: 'sent', message_content: 'Hi Rahul, how was your experience?', sent_at: new Date().toISOString() },
+            { contact_name: 'Priya Patel', contact_phone: '+919876543211', status: 'sent', message_content: 'Hi Priya, how was your experience?', sent_at: new Date().toISOString() }
+        ]
     }
 ];
 
