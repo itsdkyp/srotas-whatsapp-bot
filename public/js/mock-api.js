@@ -321,6 +321,20 @@ function _mockRoute(method, path, body) {
             setTimeout(() => window.toast?.('Demo mode — messages are not actually sent', 'info'), 500);
             return { jobId: 'demo-job-' + Date.now() };
         }
+        if (/\/api\/campaigns\/[^/]+\/retry$/.test(path)) {
+            setTimeout(() => {
+                window.toast?.('Demo mode — retry initiated', 'info');
+                triggerMockSocket('campaign:progress', { jobId: 'demo', sent: 2, failed: 0, total: 2, status: 'completed' });
+            }, 1000);
+            return { success: true };
+        }
+        if (/\/api\/campaigns\/[^/]+\/restart$/.test(path)) {
+            setTimeout(() => {
+                window.toast?.('Demo mode — restart initiated', 'info');
+                triggerMockSocket('campaign:progress', { jobId: 'demo', sent: 10, failed: 0, total: 10, status: 'completed' });
+            }, 1000);
+            return { success: true };
+        }
         if (path === '/api/templates') {
             const t = { id: 'tpl-' + Date.now(), ...body, createdAt: new Date().toISOString() };
             MOCK_TEMPLATES.push(t); return t;
