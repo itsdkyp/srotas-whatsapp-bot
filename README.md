@@ -1,254 +1,267 @@
-# 🤖 WhatsApp Bot Dashboard
+# 🤖 Srotas WhatsApp Bot
 
-A full-stack WhatsApp automation tool with a modern dark-themed web dashboard. Supports multi-account QR login, CSV/Excel contact import, personalized bulk messaging, AI-powered auto-reply, and scheduled recurring messages.
-
----
-
-## 🚀 One-Command Installation (Easiest)
-
-Install on a fresh machine with a single command:
-
-**Linux / macOS:**
-```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/whatsapp-bot/main/install.sh | bash
-```
-
-**Windows (PowerShell as Administrator):**
-```powershell
-iex ((New-Object System.Net.WebClient).DownloadString('https://raw.githubusercontent.com/YOUR_USERNAME/whatsapp-bot/main/install.ps1'))
-```
-
-The installer will:
-- ✅ Check prerequisites (Git, Docker, Docker Compose)
-- ✅ Clone the repository
-- ✅ Setup configuration
-- ✅ Start Docker containers
-- ✅ Show you the URL to access
-
-**See [INSTALL.md](INSTALL.md) for detailed installation options and troubleshooting.**
+**v1.1.7** · A full-stack WhatsApp automation platform with a modern dark-themed web dashboard. Supports multi-account QR login, CSV/Excel contact import, personalized bulk messaging, AI-powered auto-reply, scheduled recurring messages, quick-reply triggers, message templates, and a built-in license management system.
 
 ---
 
-## ⚡ Quick Start (Manual)
+## 📦 Installation
 
-### Option 1: Using Node.js (Local)
+Choose the method that fits your use case:
+
+| Method | Best For |
+|---|---|
+| [🖥️ Desktop App](#%EF%B8%8F-desktop-app-windows--macos) | End users, non-technical operators |
+| [🐳 Docker](#-docker-production) | Server / VPS / production deployments |
+| [💻 Local npm](#-local-development-npm) | Developers building or testing locally |
+
+---
+
+## 🖥️ Desktop App (Windows & macOS)
+
+Download the latest installer from the [GitHub Releases page](https://github.com/itsdkyp/srotas-whatsapp-bot/releases/latest).
+
+### Windows
+
+1. Download `Srotas.WhatsApp.Bot.Setup.x.x.x.exe`
+2. Double-click the installer and follow the prompts
+3. A **Srotas WhatsApp Bot** shortcut is created on your Desktop and Start Menu
+4. Launch the app — it opens fullscreen in your default browser chrome
+
+> **Upgrading from an older version?** Uninstall the previous version first via **Add or Remove Programs** before running the new installer.
+
+### macOS
+
+1. Download `Srotas.WhatsApp.Bot-x.x.x-arm64.dmg` (Apple Silicon) or the `.pkg` variant
+2. Open the `.dmg` and drag the app to your Applications folder
+3. Launch **Srotas WhatsApp Bot** from Applications / Spotlight
+
+---
+
+## 🐳 Docker (Production)
+
+Pull the pre-built multi-arch image from Docker Hub and run it with the included compose file.
+
+### Prerequisites
+- Docker Desktop (or Docker Engine + Compose plugin)
+
+### Quick Start
 
 ```bash
-# 1. Install dependencies
-npm install
+# 1. Clone this repository
+git clone https://github.com/itsdkyp/srotas-whatsapp-bot.git
+cd srotas-whatsapp-bot/deploy
 
-# 2. Configure (optional — can also configure via Settings page)
+# 2. Create your environment file
 cp .env.example .env
-# Edit .env to add your Gemini/OpenAI API key
+# Edit .env and add your API keys (see Environment Variables section)
 
-# 3. Start the server
-npm start
+# 3. Start the container (pulls the latest image automatically)
+docker compose -f docker-compose.prod.yml up -d
 
 # 4. Open the dashboard
 open http://localhost:3000
 ```
 
-### Option 2: Using Docker (Recommended for Production)
+### Useful Docker Commands
 
-**Simple Setup (access via localhost:3000):**
 ```bash
-# 1. Create .env file with your API keys
-cp .env.example .env
-# Edit .env to add your Gemini/OpenAI API key
+# View live logs
+docker logs whatsapp-bot -f
 
-# 2. Build and start the container
-docker-compose up -d
+# Pull latest image and restart
+docker compose -f docker-compose.prod.yml up -d   # pull_policy: always is set
 
-# 3. Open the dashboard
-open http://localhost:3000
+# Stop container (data is preserved in volumes)
+docker compose -f docker-compose.prod.yml down
 
-# 4. View logs (optional)
-docker-compose logs -f
-
-# 5. Stop the container
-docker-compose down
+# Stop and WIPE ALL DATA (⚠️ irreversible)
+docker compose -f docker-compose.prod.yml down -v
 ```
 
-**Advanced Setup with Custom Domain (access via whatsapp-bot.local):**
+### Data Persistence
+
+All user data is stored in named Docker volumes that survive container restarts and image updates:
+
+| Volume | Contents |
+|---|---|
+| `deploy_whatsapp-data` | SQLite database (sessions, contacts, campaigns, settings) |
+| `deploy_whatsapp-uploads` | Uploaded CSV / Excel files |
+| `deploy_whatsapp-auth` | WhatsApp session auth (avoids re-scanning QR) |
+| `deploy_whatsapp-cache` | WhatsApp Web browser cache |
+
+### Backup & Restore
+
 ```bash
-# Automated setup script (macOS/Linux only)
-./setup-local-domain.sh
+# Backup all volumes to a tar archive
+docker run --rm \
+  -v deploy_whatsapp-data:/data \
+  -v deploy_whatsapp-uploads:/uploads \
+  -v deploy_whatsapp-auth:/auth \
+  -v deploy_whatsapp-cache:/cache \
+  -v $(pwd):/backup \
+  alpine tar czf /backup/srotas-backup-$(date +%Y%m%d).tar.gz /data /uploads /auth /cache
 
-# Or manual setup:
-# 1. Add to /etc/hosts
-echo "127.0.0.1       whatsapp-bot.local" | sudo tee -a /etc/hosts
-
-# 2. Start with nginx reverse proxy
-docker-compose -f docker-compose.nginx.yml up -d
-
-# 3. Open the dashboard
-open http://whatsapp-bot.local
+# Restore from backup
+docker compose -f docker-compose.prod.yml down
+docker run --rm \
+  -v deploy_whatsapp-data:/data \
+  -v deploy_whatsapp-auth:/auth \
+  -v $(pwd):/backup \
+  alpine tar xzf /backup/srotas-backup-YYYYMMDD.tar.gz
+docker compose -f docker-compose.prod.yml up -d
 ```
-
-See [SETUP_LOCAL_DOMAIN.md](SETUP_LOCAL_DOMAIN.md) for detailed instructions and other options.
-
-**✅ Data Persistence with Docker:**
-- All data (database, WhatsApp sessions, uploads) is stored in Docker volumes
-- Data **survives container restarts and recreations**
-- To completely remove data: `docker-compose down -v` (⚠️ warning: deletes all data)
-- To backup data: `docker run --rm -v whatsapp-bot_whatsapp-data:/data -v $(pwd):/backup alpine tar czf /backup/backup.tar.gz /data`
 
 ---
 
-## 📱 Features
+## 💻 Local Development (npm)
 
-### 1. WhatsApp Sessions (QR Login)
+### Prerequisites
+- Node.js 18+
+- Google Chrome or Chromium (for WhatsApp Web automation)
 
-Connect one or more WhatsApp accounts by scanning a QR code.
+### Setup
 
-1. Go to **Sessions** page
-2. Click **"+ Add Account"**
-3. Enter a name (e.g. "Business", "Personal")
-4. Click **"Create & Get QR"**
-5. A QR code will appear — scan it with your WhatsApp mobile app:
-   - Open WhatsApp → **Settings** → **Linked Devices** → **Link a Device**
-6. Once scanned, the session will show **● Connected**
+```bash
+# 1. Clone and install dependencies
+git clone https://github.com/itsdkyp/srotas-whatsapp-bot.git
+cd srotas-whatsapp-bot
+npm install
 
-> **Note:** Sessions persist across server restarts using local auth files stored in `.wwebjs_auth/`.
+# 2. Configure environment
+cp .env.example .env
+# Edit .env to add your API keys
 
-### 2. Contact Import (CSV / Excel)
+# 3. Start the dev server
+npm run dev
+
+# 4. Open the dashboard
+open http://localhost:3000
+```
+
+### Fresh Start (Reset All Data)
+
+```bash
+# Stop the server (Ctrl+C), then:
+rm -rf data/           # wipes SQLite DB — resets license, sessions, contacts
+rm -rf .wwebjs_auth/   # forces QR re-scan on next start
+rm -rf .wwebjs_cache/  # clears WhatsApp Web asset cache
+npm run dev
+```
+
+---
+
+## ✨ Features
+
+### 🔑 License Activation
+
+The app requires a one-time license key on first launch.
+
+- Enter your key in the **Activation** screen that appears on first run
+- Once activated, the key is stored locally and the screen never appears again
+- The **Settings page** shows your license status, masked key, expiry date, and days remaining with a colour-coded badge (✅ Active / ⚠️ Expiring Soon / 🔴 Critical)
+
+### 📱 WhatsApp Sessions (Multi-Account)
+
+Connect one or more WhatsApp accounts via QR code.
+
+1. Go to **Sessions** → **+ Add Account**
+2. Enter a name (e.g. "Business", "Support")
+3. Scan the QR code with WhatsApp → **Settings** → **Linked Devices** → **Link a Device**
+4. The session shows **● Connected** when ready
+
+> Sessions persist across restarts using local auth stored in `.wwebjs_auth/`. Multiple sessions are staggered on startup to prevent CPU overload.
+
+### 📂 Contact Import (CSV / Excel)
 
 Import contacts from `.csv`, `.xlsx`, or `.xls` files.
 
-1. Go to **Contacts** page
-2. Click **"📁 Import File"**
-3. Select your file — the bot auto-detects columns:
-   - **phone** — required (phone number with country code)
-   - **name** — contact name
-   - **company** — company/organization name
-   - Any extra columns become custom template fields
-4. Preview the parsed data
-5. Enter a **group name** (e.g. "clients", "leads")
-6. Click **"✅ Import Contacts"**
-
-#### CSV Format
+1. Go to **Contacts** → **📁 Import File**
+2. Select your file — columns are auto-detected:
+   - **phone** — required, include country code (e.g. `+91`, `+1`)
+   - **name**, **company** — standard fields
+   - Any extra columns (e.g. `city`, `plan`) become `{{placeholders}}` in templates
 
 ```csv
 phone,name,company,city
 +919876543210,Rahul Sharma,TechCorp,Bangalore
-+919876543211,Priya Patel,WebIndia,Mumbai
++911234567890,Priya Patel,WebIndia,Mumbai
 ```
 
-- The `phone` column must include the country code (e.g. `+91`, `+1`)
-- Column names are case-insensitive and auto-matched
-- Extra columns (like `city`) can be used as `{{city}}` in message templates
-
-### 3. Bulk Messaging with Templates
+### 📢 Bulk Messaging with Templates
 
 Send personalized messages to entire contact groups.
 
-1. Go to **Messages** page
-2. Select the **session** to send from
-3. Select the **contact group** to send to
-4. Write a **message template** using placeholders:
+1. Go to **Campaigns** → select **Session** and **Contact Group**
+2. Write a message template with `{{placeholders}}`:
 
 ```
 Hello {{name}},
 
-Greetings from {{company}}! We wanted to let you know about our latest updates for {{city}} area.
+Greetings from {{company}}! We have an update for the {{city}} region.
 
-Best regards,
-Team
+Best regards, Team
 ```
 
-5. See the **Live Preview** with actual contact data filled in
-6. Set **delays** between messages (to avoid rate limiting)
-7. Click **"🚀 Send to All"**
+3. Set send delays (recommended: 8–18 seconds to stay safe)
+4. Click **🚀 Send to All** — live progress is shown
 
-#### Available Placeholders
+### 🕐 Scheduled / Recurring Messages
 
-| Placeholder | Source |
-|---|---|
-| `{{name}}` | Contact's name |
-| `{{company}}` | Contact's company |
-| `{{phone}}` | Contact's phone number |
-| `{{any_column}}` | Any custom column from your CSV/Excel file |
+Automate sends on a recurring schedule.
 
-### 4. Scheduled / Recurring Messages
+1. Go to **Scheduler** → **+ New Schedule**
+2. Set: Session, Contact Group, Template, Frequency (Daily / Weekly / Monthly), Time
+3. Schedules can be toggled on/off and show **next run** / **last run** timestamps
 
-Automate message sends on a daily, weekly, or monthly schedule.
+### ⚡ Quick Replies
 
-1. Go to **Scheduler** page
-2. Click **"+ New Schedule"**
-3. Fill in:
-   - **Schedule Name** — descriptive label
-   - **Session** — which WhatsApp account to send from
-   - **Contact Group** — which contacts to send to
-   - **Message Template** — with `{{placeholders}}`
-   - **Frequency** — Daily, Weekly, or Monthly
-   - **Day of Week** (for weekly) or **Day of Month** (for monthly)
-   - **Send Time** — when to send (24-hour format)
-4. Click **"✅ Create Schedule"**
+Define keyword triggers that auto-send a canned response.
 
-Schedules can be **toggled on/off** and show **next run** / **last run** timestamps.
+1. Go to **Quick Replies** → **+ Add Rule**
+2. Set a trigger keyword (e.g. "price") and a response message
+3. Enable the rule — incoming messages matching the keyword trigger it instantly
 
-> **Important:** The scheduler runs as long as the server is running. If you restart the server, pending schedules will resume automatically.
+### 📝 Message Templates
 
-### 5. AI Auto-Reply
+Save reusable message templates for use across campaigns, schedules, and quick replies.
+
+1. Go to **Templates** → **+ New Template**
+2. Name it and write the body with `{{placeholders}}`
+3. Templates are available across the entire app when composing messages
+
+### 🧠 AI Auto-Reply
 
 Automatically reply to incoming WhatsApp messages using Gemini or OpenAI.
 
-1. Go to **Settings** page:
-   - Select **AI Provider** (Google Gemini or OpenAI)
-   - Enter your **API Key**
-   - Customize the **System Prompt** (personality/instructions for the AI)
-   - Click **"💾 Save Settings"**
-2. Go to **Sessions** page:
-   - Toggle **Auto-Reply** ON for the session you want
+1. Go to **Settings** → configure **AI Provider** and **API Key**
+2. Customize the **System Prompt** (personality and instructions)
+3. Go to **Sessions** → toggle **Auto-Reply ON** for the desired session
 
-The bot stores all conversation history locally in SQLite, giving the AI context for follow-up responses.
+The bot maintains local conversation history in SQLite for contextual follow-up replies.
+
+### 🎨 Appearance
+
+- Switch between **Dark Mode** and **Light Mode** from the Settings page
+- The selected theme is persisted to the database and restored on every launch (even with a randomly assigned port)
 
 ---
 
-## 📁 Project Structure
+## 🛡️ Admin Panel *(Easter Egg)*
 
-```
-whatsapp-bot/
-├── server.js                         # Express server + API routes
-├── package.json
-├── .env                              # Environment configuration
-├── .env.example                      # Template for .env
-├── .gitignore
-├── sample_contacts.csv               # Small test CSV (5 contacts)
-├── test_contacts_large.csv           # Larger test CSV (20 contacts)
-│
-├── src/
-│   ├── db/database.js                # SQLite database + tables
-│   ├── whatsapp/
-│   │   ├── sessionManager.js         # Multi-account WA client manager
-│   │   └── messageHandler.js         # Incoming message + auto-reply
-│   ├── contacts/importer.js          # CSV/Excel parser
-│   ├── messaging/
-│   │   ├── bulkSender.js             # Template engine + bulk queue
-│   │   └── scheduler.js              # Daily/weekly/monthly job scheduler
-│   └── ai/
-│       ├── provider.js               # Gemini/OpenAI adapter
-│       └── memory.js                 # Conversation history storage
-│
-├── public/                           # Frontend (SPA)
-│   ├── index.html                    # Dashboard shell
-│   ├── css/style.css                 # Dark theme styles
-│   └── js/
-│       ├── app.js                    # Router + utilities
-│       ├── sessions.js               # Sessions page logic
-│       ├── contacts.js               # Contacts page logic
-│       ├── messaging.js              # Bulk messaging page logic
-│       ├── scheduler.js              # Scheduler page logic
-│       └── settings.js               # Settings page logic
-│
-├── data/                             # SQLite database (auto-created)
-├── uploads/                          # Uploaded CSV/XLSX files (auto-created)
-└── .wwebjs_auth/                     # WhatsApp session auth (auto-created)
-```
+Activate with the special Easter Egg key to unlock a hidden **🛡️ Admin** item in the sidebar. Inside:
+
+- **Generate License Keys** — choose duration presets (30 days → 10 years) or enter custom days
+- Generated keys use the same HMAC cryptography as the validator — they work out of the box
+- **Issued Keys history** — a scrollable table of every key generated, with expiry dates and one-click copy
+- History is persisted in SQLite (up to 100 entries)
+
+The admin API endpoints (`/api/admin/*`) refuse requests that are not from an Easter Egg session with a `403 Forbidden`.
 
 ---
 
 ## ⚙️ Environment Variables
+
+Configure via `.env` file or the Settings page in the dashboard:
 
 | Variable | Default | Description |
 |---|---|---|
@@ -256,16 +269,21 @@ whatsapp-bot/
 | `AI_PROVIDER` | `gemini` | AI provider: `gemini` or `openai` |
 | `GEMINI_API_KEY` | — | Google Gemini API key |
 | `OPENAI_API_KEY` | — | OpenAI API key |
-| `AUTO_REPLY_ENABLED` | `true` | Global auto-reply toggle |
-| `SYSTEM_PROMPT` | `You are a helpful assistant.` | System prompt for AI replies |
-| `MIN_DELAY_MS` | `3000` | Minimum delay between bulk messages (ms) |
-| `MAX_DELAY_MS` | `5000` | Maximum delay between bulk messages (ms) |
+| `MIN_DELAY_MS` | `8000` | Minimum delay between bulk messages (ms) |
+| `MAX_DELAY_MS` | `18000` | Maximum delay between bulk messages (ms) |
 
-> Settings can also be changed at runtime via the **Settings** page in the dashboard.
+> All settings can also be changed at runtime via the **Settings** page and are persisted to SQLite.
 
 ---
 
 ## 🔌 API Reference
+
+### License
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/license-status` | Returns `{ activated, isLifetime, expiryDate, daysRemaining, keyMasked }` |
+| `POST` | `/api/activate` | Activate with `{ key }` |
 
 ### Sessions
 
@@ -274,13 +292,15 @@ whatsapp-bot/
 | `GET` | `/api/sessions` | List all sessions |
 | `POST` | `/api/sessions` | Create session `{ name }` |
 | `DELETE` | `/api/sessions/:id` | Remove session |
+| `POST` | `/api/sessions/:id/restart` | Restart a session |
+| `POST` | `/api/sessions/:id/relink` | Force QR re-scan |
 | `PUT` | `/api/sessions/:id/auto-reply` | Toggle auto-reply `{ enabled }` |
 
 ### Contacts
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/contacts?group=&search=` | List/search contacts |
+| `GET` | `/api/contacts?group=&search=` | List / search contacts |
 | `GET` | `/api/contacts/groups` | List contact groups |
 | `POST` | `/api/contacts/upload` | Upload CSV/Excel file (multipart) |
 | `POST` | `/api/contacts/import` | Import parsed contacts `{ contacts, group }` |
@@ -291,18 +311,18 @@ whatsapp-bot/
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/api/messages/send-bulk` | Send bulk messages `{ sessionId, group, template }` |
-| `POST` | `/api/messages/preview` | Preview rendered template `{ template, contact }` |
-| `GET` | `/api/messages?phone=&limit=` | Get message history |
+| `POST` | `/api/messages/send-bulk` | Send bulk `{ sessionId, group, template }` |
+| `POST` | `/api/messages/preview` | Preview rendered template |
+| `GET` | `/api/messages?phone=&limit=` | Message history |
 
 ### Scheduler
 
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/schedules` | List all schedules |
-| `POST` | `/api/schedules` | Create schedule `{ name, sessionId, groupName, template, frequency, ... }` |
+| `POST` | `/api/schedules` | Create schedule |
 | `PUT` | `/api/schedules/:id` | Update schedule |
-| `PUT` | `/api/schedules/:id/toggle` | Enable/disable `{ enabled }` |
+| `PUT` | `/api/schedules/:id/toggle` | Enable / disable `{ enabled }` |
 | `DELETE` | `/api/schedules/:id` | Delete schedule |
 
 ### Settings
@@ -310,229 +330,98 @@ whatsapp-bot/
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/settings` | Get all settings |
-| `PUT` | `/api/settings` | Update settings |
+| `PUT` | `/api/settings` | Update settings `{ theme, gemini_api_key, ... }` |
+
+### Admin *(Easter Egg only)*
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/admin/generate-key` | Generate a license key `{ days }` |
+| `GET` | `/api/admin/history` | List all previously generated keys |
 
 ---
 
-## 🐳 Docker Deployment Guide
+## 📁 Project Structure
 
-### Quick Start with Docker
-
-```bash
-# 1. Clone the repository
-git clone <your-repo-url>
-cd whatsapp-bot
-
-# 2. Create environment file
-cp .env.example .env
-# Edit .env and add your API keys
-
-# 3. Start with docker-compose
-docker-compose up -d
-
-# 4. Access the dashboard
-# Open http://localhost:3000 in your browser
 ```
-
-### Docker Commands
-
-```bash
-# Start containers
-docker-compose up -d
-
-# Stop containers (data persists)
-docker-compose down
-
-# View logs
-docker-compose logs -f
-
-# Restart containers
-docker-compose restart
-
-# Rebuild after code changes
-docker-compose up -d --build
-
-# Stop and remove ALL data (⚠️ Warning: deletes everything)
-docker-compose down -v
-```
-
-### Data Persistence
-
-**Docker volumes ensure data survives:**
-- ✅ Container restarts (`docker-compose restart`)
-- ✅ Container recreations (`docker-compose down && docker-compose up`)
-- ✅ Server/host reboots (if `restart: unless-stopped` is set)
-- ✅ Docker updates
-
-**Volumes created:**
-- `whatsapp-data` → SQLite database (contacts, campaigns, settings)
-- `whatsapp-uploads` → Uploaded media files
-- `whatsapp-auth` → WhatsApp session authentication
-- `whatsapp-cache` → WhatsApp cache files
-
-**List volumes:**
-```bash
-docker volume ls | grep whatsapp
-```
-
-**Inspect a volume:**
-```bash
-docker volume inspect whatsapp-bot_whatsapp-data
-```
-
-### Backup & Restore
-
-**Backup all data:**
-```bash
-# Create backup of all volumes
-docker run --rm \
-  -v whatsapp-bot_whatsapp-data:/data \
-  -v whatsapp-bot_whatsapp-uploads:/uploads \
-  -v whatsapp-bot_whatsapp-auth:/auth \
-  -v whatsapp-bot_whatsapp-cache:/cache \
-  -v $(pwd):/backup \
-  alpine tar czf /backup/whatsapp-backup-$(date +%Y%m%d).tar.gz /data /uploads /auth /cache
-```
-
-**Restore from backup:**
-```bash
-# Stop the application
-docker-compose down
-
-# Restore volumes from backup
-docker run --rm \
-  -v whatsapp-bot_whatsapp-data:/data \
-  -v whatsapp-bot_whatsapp-uploads:/uploads \
-  -v whatsapp-bot_whatsapp-auth:/auth \
-  -v whatsapp-bot_whatsapp-cache:/cache \
-  -v $(pwd):/backup \
-  alpine tar xzf /backup/whatsapp-backup-YYYYMMDD.tar.gz
-
-# Start the application
-docker-compose up -d
-```
-
-### Environment Variables in Docker
-
-Edit `.env` file before starting:
-
-```env
-# Server
-PORT=3000
-
-# AI Configuration
-AI_PROVIDER=gemini
-GEMINI_API_KEY=your_gemini_key_here
-OPENAI_API_KEY=your_openai_key_here
-
-# Auto-Reply
-AUTO_REPLY_ENABLED=true
-SYSTEM_PROMPT=You are a helpful assistant.
-
-# Message Delays (milliseconds)
-MIN_DELAY_MS=8000
-MAX_DELAY_MS=18000
-```
-
-### Production Deployment Tips
-
-**1. Use a reverse proxy (nginx/traefik):**
-```yaml
-# Example nginx config
-server {
-    listen 80;
-    server_name your-domain.com;
-
-    location / {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
-}
-```
-
-**2. Enable HTTPS:**
-```bash
-# Use Let's Encrypt with certbot
-sudo certbot --nginx -d your-domain.com
-```
-
-**3. Monitor container health:**
-```bash
-# Check container status
-docker-compose ps
-
-# Check health status
-docker inspect whatsapp-bot | grep -A 10 Health
-```
-
-**4. Set up automatic backups:**
-```bash
-# Add to crontab (daily backup at 2 AM)
-0 2 * * * cd /path/to/whatsapp-bot && docker-compose exec -T whatsapp-bot tar czf - /app/data /app/uploads /app/.wwebjs_auth > backup-$(date +\%Y\%m\%d).tar.gz
-```
-
-### Troubleshooting
-
-**Container won't start:**
-```bash
-# Check logs
-docker-compose logs
-
-# Check if port 3000 is already in use
-lsof -i :3000
-```
-
-**Data not persisting:**
-```bash
-# Verify volumes are mounted
-docker inspect whatsapp-bot | grep -A 20 Mounts
-
-# Check volume exists
-docker volume ls | grep whatsapp
-```
-
-**Out of disk space:**
-```bash
-# Check Docker disk usage
-docker system df
-
-# Clean up unused resources
-docker system prune -a
-```
-
-**Permissions issues:**
-```bash
-# Fix volume permissions
-docker-compose exec whatsapp-bot chown -R node:node /app/data /app/uploads /app/.wwebjs_auth
+srotas-whatsapp-bot/
+├── main.js                         # Electron entry point (Desktop App)
+├── server.js                       # Express server + all API routes
+├── package.json
+├── .env.example
+│
+├── src/
+│   ├── db/database.js              # SQLite schema + helpers
+│   ├── license/index.js            # License validation + key generation
+│   ├── whatsapp/
+│   │   ├── sessionManager.js       # Multi-account WhatsApp client manager
+│   │   └── messageHandler.js       # Incoming message + auto-reply dispatcher
+│   ├── contacts/importer.js        # CSV/Excel parser
+│   ├── messaging/
+│   │   ├── bulkSender.js           # Template engine + bulk send queue
+│   │   └── scheduler.js            # Recurring job runner
+│   └── ai/
+│       ├── provider.js             # Gemini / OpenAI adapter
+│       └── memory.js               # Conversation history
+│
+├── public/                         # Frontend SPA
+│   ├── index.html
+│   ├── css/style.css
+│   └── js/
+│       ├── app.js                  # SPA router + utilities
+│       ├── sessions.js
+│       ├── contacts.js
+│       ├── messaging.js
+│       ├── scheduler.js
+│       ├── templates.js
+│       ├── quickreplies.js
+│       ├── settings.js
+│       ├── admin.js                # Admin panel (Easter Egg)
+│       └── help.js
+│
+├── deploy/
+│   ├── docker-compose.prod.yml     # Production compose file
+│   ├── docker-compose.yml          # Development compose file
+│   └── nginx.conf                  # Nginx reverse proxy example
+│
+├── .github/workflows/
+│   ├── release.yml                 # Electron Desktop App CI (Windows + macOS)
+│   └── docker.yml                  # Docker multi-arch image CI
+│
+├── data/                           # SQLite database (auto-created)
+├── uploads/                        # Uploaded files (auto-created)
+└── .wwebjs_auth/                   # WhatsApp session auth (auto-created)
 ```
 
 ---
 
-## 🧪 Testing with Dummy CSV Files
+## 🛠️ Troubleshooting
 
-Two test files are included:
+### WhatsApp QR code not appearing / loading forever
 
-1. **`sample_contacts.csv`** — 5 contacts with `phone, name, company, city`
-2. **`test_contacts_large.csv`** — 20 contacts with `phone, name, company, city, designation, product_interest`
-
-### Test Flow
-
+```bash
+# Clear stale Chromium lock files and restart
+docker exec whatsapp-bot find /app/.wwebjs_auth -name "Singleton*" -delete
+docker restart whatsapp-bot
 ```
-1. Start server:           npm start
-2. Open dashboard:         http://localhost:3000
-3. Create a session:       Sessions → Add Account → scan QR
-4. Import test contacts:   Contacts → Import File → select sample_contacts.csv
-5. Set group name:         "test_group"
-6. Confirm import:         Click "Import Contacts"
-7. Send test message:      Messages → Select session & group →
-                           Type: "Hi {{name}} from {{company}} in {{city}}"
-                           → Send to All
-8. Create schedule:        Scheduler → New Schedule →
-                           Daily at 10:00 → Create
+
+### Cannot connect on Windows after installation
+
+1. Make sure **Google Chrome** or **Microsoft Edge** is installed — the app uses your system browser for WhatsApp Web automation
+2. Check Windows Defender isn't blocking the app
+
+### Upgrading Windows installer fails (NSIS Error)
+
+The app name changed in v1.1.6. If you have an older version installed:
+
+1. Press `Win + R`, paste `%LOCALAPPDATA%\Programs\WhatsApp Bot Server` and delete that folder
+2. Run the new `Srotas WhatsApp Bot Setup` installer
+
+### Reset to factory defaults
+
+```bash
+rm -rf data/ .wwebjs_auth/ .wwebjs_cache/
+npm run dev   # or restart Docker container
 ```
 
 ---
@@ -540,12 +429,12 @@ Two test files are included:
 ## ⚠️ Important Notes
 
 - **WhatsApp ToS:** Using unofficial WhatsApp automation may violate WhatsApp's Terms of Service. Use responsibly and at your own risk.
-- **Rate Limiting:** WhatsApp may temporarily ban numbers that send too many messages too quickly. Always use appropriate delays (3-5 seconds minimum).
-- **Session Persistence:** Sessions are stored in `.wwebjs_auth/`. Deleting this folder will require re-scanning all QR codes.
-- **First QR may take time:** The first session initialization downloads Chromium (~170 MB). Subsequent sessions start faster.
+- **Rate Limiting:** Always use appropriate delays (8–18 seconds recommended). Sending too fast may result in a temporary number ban.
+- **Session Persistence:** Sessions are stored in `.wwebjs_auth/`. Deleting this folder forces a full QR re-scan.
+- **Multiple Sessions on Startup:** Sessions are staggered 3.5 seconds apart to avoid overloading the CPU when multiple accounts reconnect simultaneously.
 
 ---
 
 ## 📜 License
 
-ISC
+ISC © [Srotas Tech](https://srotas.tech)
