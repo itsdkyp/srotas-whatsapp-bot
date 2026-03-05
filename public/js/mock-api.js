@@ -187,7 +187,9 @@ window.fetch = async function (url, opts = {}) {
     const result = _mockRoute(method, path, body);
 
     return {
-        ok: true, status: 200,
+        ok: true,
+        status: 200,
+        headers: { get: (name) => name.toLowerCase() === 'content-type' ? 'application/json' : null },
         json: () => Promise.resolve(result),
         text: () => Promise.resolve(JSON.stringify(result)),
         clone() { return this; }
