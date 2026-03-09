@@ -1,6 +1,6 @@
 # 🤖 Srotas WhatsApp Bot
 
-**v1.1.7** · A full-stack WhatsApp automation platform with a modern dark-themed web dashboard. Supports multi-account QR login, CSV/Excel contact import, personalized bulk messaging, AI-powered auto-reply, scheduled recurring messages, quick-reply triggers, message templates, and a built-in license management system.
+**v1.1.8** · A full-stack WhatsApp automation platform with a modern dark-themed web dashboard. Supports multi-account QR login, CSV/Excel contact import, personalized bulk messaging, AI-powered auto-reply, scheduled recurring messages, quick-reply triggers, message templates, and a built-in license management system.
 
 ---
 

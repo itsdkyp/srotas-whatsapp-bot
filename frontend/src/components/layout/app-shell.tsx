@@ -270,7 +270,7 @@ export function AppShell({ children }: AppShellProps) {
                         </h2>
                         <p className="text-xs text-muted-foreground">Srotas.bot · WhatsApp Automation Platform</p>
                     </div>
-                    <div className="text-xs px-3 py-1 rounded-full badge-blue font-medium">v1.1.7</div>
+                    <div className="text-xs px-3 py-1 rounded-full badge-blue font-medium">v1.1.8</div>
                 </div>
 
                 {/* Page with transition */}
