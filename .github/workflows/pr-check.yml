@@ -1,0 +1,84 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  lint-and-build-ui:
+    name: Typecheck & Build Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install root dependencies
+        run: npm ci
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+      - name: Build Frontend
+        run: npm run build:ui
+
+  build-docker:
+    name: Docker Build Check
+    runs-on: ubuntu-latest
+    needs: lint-and-build-ui
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Test Docker Build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          load: false
+          tags: srotas-bot:pr-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-windows:
+    name: Windows Package Check
+    runs-on: windows-latest
+    needs: lint-and-build-ui
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Build Windows App
+        # This will automatically run build:ui first, testing the full Windows pipeline
+        run: npm run build:win
+        env:
+          CSC_LINK: ''
+          CSC_KEY_PASSWORD: ''
+
+  build-mac:
+    name: macOS Package Check
+    runs-on: macos-latest
+    needs: lint-and-build-ui
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Build macOS App
+        # This will automatically run build:ui first, testing the full macOS pipeline
+        run: npm run build:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
