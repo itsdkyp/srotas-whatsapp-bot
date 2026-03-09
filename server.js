@@ -295,6 +295,7 @@ app.get('/api/contacts/sync/:sessionId', async (req, res) => {
     try {
         const sessionId = req.params.sessionId;
         const state = sessionManager.getSessionState(sessionId);
+        console.log('[Sync Contacts] Looked up session:', sessionId, 'Found state:', state);
         if (state.status !== 'ready') {
             return res.status(400).json({ error: `Session is not ready (status: ${state.status}). Please ensure WhatsApp is connected.` });
         }
@@ -404,7 +405,7 @@ app.post('/api/messages/send-bulk', async (req, res) => {
         // Start bulk send in background
         res.json({ status: 'started', total: contacts.length });
         bulkSender.sendBulk(sessionId, contacts, template, {
-            minDelay, maxDelay, groupName: group || '', mediaPath, mediaPaths: mediaPaths || null, buttons: buttons || null,
+            minDelay, maxDelay, groupName: group || '', mediaPath, mediaPaths: mediaPaths || null, buttons: buttons || null, name: req.body.name || null,
         }).catch(err => {
             console.error('[Server] Campaign failed:', err.message);
         });
@@ -779,8 +780,8 @@ app.get('/api/analytics', (req, res) => {
         // Messages over time
         const messagesOverTime = generateMessagesOverTime(filteredCampaigns, range);
 
-        // Hourly pattern (use all campaigns for better pattern)
-        const hourlyPattern = generateHourlyPattern(allCampaigns);
+        // Hourly pattern
+        const hourlyPattern = generateHourlyPattern(filteredCampaigns);
 
         // Top campaigns
         const topCampaigns = filteredCampaigns
@@ -789,7 +790,7 @@ app.get('/api/analytics', (req, res) => {
             .slice(0, 5)
             .map(c => ({
                 id: c.id,
-                name: `Campaign #${c.id}`,
+                name: c.name || `Campaign #${c.id}`,
                 date: c.started_at,
                 group: c.group_name || 'No group',
                 sent: c.sent || 0,
@@ -1042,7 +1043,16 @@ app.put('/api/settings', (req, res) => {
 // ═══════════════════════════════════════
 
 app.get('/api/schedules', (req, res) => {
-    res.json(scheduler.getAll());
+    const schedules = scheduler.getAll();
+    const sessions = sessionsDb.getAll();
+    const enriched = schedules.map(s => {
+        const session = sessions.find(sess => sess.id === s.session_id);
+        return {
+            ...s,
+            session_name: session ? session.name : 'Unknown Device',
+        };
+    });
+    res.json(enriched);
 });
 
 app.post('/api/schedules', (req, res) => {

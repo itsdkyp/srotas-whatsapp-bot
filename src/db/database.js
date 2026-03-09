@@ -151,6 +151,11 @@ try {
     db.exec("ALTER TABLE campaigns ADD COLUMN media_paths TEXT");
 }
 try {
+    db.prepare("SELECT name FROM campaigns LIMIT 0").get();
+} catch (e) {
+    db.exec("ALTER TABLE campaigns ADD COLUMN name TEXT");
+}
+try {
     db.prepare("SELECT min_delay FROM campaigns LIMIT 0").get();
 } catch (e) {
     db.exec("ALTER TABLE campaigns ADD COLUMN min_delay INTEGER DEFAULT 8000");
@@ -252,10 +257,10 @@ const contacts = {
 };
 
 const campaigns = {
-    create: (sessionId, groupName, template, total, buttonsConfig, mediaPath, mediaPaths, minDelay, maxDelay) => {
+    create: (sessionId, groupName, template, total, buttonsConfig, mediaPath, mediaPaths, minDelay, maxDelay, name) => {
         const r = db.prepare(
-            'INSERT INTO campaigns (session_id, group_name, template, total, buttons_config, media_path, media_paths, min_delay, max_delay) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-        ).run(sessionId, groupName, template, total, buttonsConfig ? JSON.stringify(buttonsConfig) : null, mediaPath || null, mediaPaths ? JSON.stringify(mediaPaths) : null, minDelay || 8000, maxDelay || 18000);
+            'INSERT INTO campaigns (session_id, group_name, template, total, buttons_config, media_path, media_paths, min_delay, max_delay, name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        ).run(sessionId, groupName, template, total, buttonsConfig ? JSON.stringify(buttonsConfig) : null, mediaPath || null, mediaPaths ? JSON.stringify(mediaPaths) : null, minDelay || 8000, maxDelay || 18000, name || `Campaign #${Date.now().toString().slice(-4)}`);
         return r.lastInsertRowid;
     },
     getAll: () => db.prepare('SELECT * FROM campaigns ORDER BY started_at DESC').all(),

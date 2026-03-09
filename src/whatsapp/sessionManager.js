@@ -66,19 +66,32 @@ function createClient(sessionId, name, retryCount = 0) {
             executablePath = chromePaths.chrome || chromePaths.chromium || undefined;
         } catch (err) { /* ignore */ }
 
-        // Fallback: manually check common Windows install locations if still not found
-        if (!executablePath && isWindows) {
-            const winCandidates = [
-                // Chrome (system-wide)
-                'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-                'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-                // Chrome (per-user)
-                path.join(process.env.LOCALAPPDATA || '', 'Google\\Chrome\\Application\\chrome.exe'),
-                // Edge (always present on Windows 10+)
-                'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-                path.join(process.env.PROGRAMFILES || '', 'Microsoft\\Edge\\Application\\msedge.exe'),
-            ];
-            for (const candidate of winCandidates) {
+        // Fallback: manually check common install locations if still not found
+        if (!executablePath) {
+            let candidates = [];
+            if (isWindows) {
+                candidates = [
+                    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+                    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+                    path.join(process.env.LOCALAPPDATA || '', 'Google\\Chrome\\Application\\chrome.exe'),
+                    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+                    path.join(process.env.PROGRAMFILES || '', 'Microsoft\\Edge\\Application\\msedge.exe'),
+                ];
+            } else if (process.platform === 'darwin') {
+                candidates = [
+                    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+                    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+                    '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'
+                ];
+            } else if (process.platform === 'linux') {
+                candidates = [
+                    '/usr/bin/google-chrome',
+                    '/usr/bin/chromium-browser',
+                    '/usr/bin/chromium'
+                ];
+            }
+
+            for (const candidate of candidates) {
                 if (candidate && fs.existsSync(candidate)) {
                     executablePath = candidate;
                     break;
@@ -96,22 +109,8 @@ function createClient(sessionId, name, retryCount = 0) {
             : undefined
     });
 
-    // Base args (Linux/Docker-safe)
-    const puppeteerArgs = [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-gpu',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--disable-background-timer-throttling',
-        '--disable-renderer-backgrounding',
-    ];
-
-    // --no-zygote prevents post-QR crashes in Docker/Linux but HANGS on Windows
-    if (!isWindows) {
-        puppeteerArgs.push('--no-zygote');
-    }
+    // Base args (Linux/Docker-safe and performance-optimized)
+    const puppeteerArgs = [];
 
     const client = new Client({
         authStrategy,
@@ -120,6 +119,10 @@ function createClient(sessionId, name, retryCount = 0) {
             headless: true,
             args: puppeteerArgs,
         },
+        webVersionCache: {
+            type: 'remote',
+            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
+        }
     });
 
     sessionStates.set(sessionId, { status: 'initializing', qr: null });
@@ -261,69 +264,96 @@ async function relinkSession(sessionId) {
     createClient(sessionId, dbSession.name);
 }
 
-async function getWhatsAppContacts(sessionId) {
+async function getWhatsAppContacts(sessionId, retries = 3) {
     const client = clients.get(sessionId);
     if (!client) throw new Error('Session not found or not connected');
 
-    const waContacts = await client.getContacts();
-    return waContacts
-        .filter(c => c.isMyContact && c.id && c.id.server === 'c.us')
-        .map(c => ({
-            phone: c.id.user,
-            name: c.name || c.pushname || '',
-            company: '',
-        }));
+    try {
+        const waContacts = await client.getContacts();
+        return waContacts
+            .filter(c => c.isMyContact && c.id && c.id.server === 'c.us')
+            .map(c => ({
+                phone: c.id.user,
+                name: c.name || c.pushname || '',
+                company: '',
+            }));
+    } catch (error) {
+        if (retries > 0 && (error.message.includes('detached Frame') || error.message.includes('Execution context was destroyed'))) {
+            console.warn(`[Session ${sessionId}] Detached frame error, retrying getContacts (${retries} retries left)...`);
+            await new Promise(r => setTimeout(r, 2000));
+            return getWhatsAppContacts(sessionId, retries - 1);
+        }
+        throw error;
+    }
 }
 
-async function getWhatsAppGroups(sessionId) {
+async function getWhatsAppGroups(sessionId, retries = 3) {
     const client = clients.get(sessionId);
     if (!client) throw new Error('Session not found or not connected');
 
-    const chats = await client.getChats();
-    return chats
-        .filter(c => c.isGroup)
-        .map(c => ({
-            id: c.id._serialized,
-            name: c.name,
-            participantCount: c.participants ? c.participants.length : 0,
-        }));
+    try {
+        const chats = await client.getChats();
+        return chats
+            .filter(c => c.isGroup)
+            .map(c => ({
+                id: c.id._serialized,
+                name: c.name,
+                participantCount: c.participants ? c.participants.length : 0,
+            }));
+    } catch (error) {
+        if (retries > 0 && (error.message.includes('detached Frame') || error.message.includes('Execution context was destroyed'))) {
+            console.warn(`[Session ${sessionId}] Detached frame error, retrying getChats (${retries} retries left)...`);
+            await new Promise(r => setTimeout(r, 2000));
+            return getWhatsAppGroups(sessionId, retries - 1);
+        }
+        throw error;
+    }
 }
 
-async function getGroupParticipants(sessionId, groupId) {
+async function getGroupParticipants(sessionId, groupId, retries = 3) {
     const client = clients.get(sessionId);
     if (!client) throw new Error('Session not found or not connected');
 
-    const chat = await client.getChatById(groupId);
-    if (!chat || !chat.isGroup) throw new Error('Group not found');
+    try {
+        const chat = await client.getChatById(groupId);
+        if (!chat || !chat.isGroup) throw new Error('Group not found');
 
-    const participants = chat.participants || [];
-    const contacts = [];
+        const participants = chat.participants || [];
+        const contacts = [];
 
-    for (const p of participants) {
-        try {
-            const contact = await client.getContactById(p.id._serialized);
-            if (contact && p.id.server === 'c.us') {
-                // Prioritize: pushname (their WA display name) > saved name > shortName > phone number
-                const name = contact.pushname || contact.name || contact.shortName || p.id.user || '';
-                contacts.push({
-                    phone: p.id.user,
-                    name,
-                    company: '',
-                });
-            }
-        } catch (e) {
-            // If we can't get contact details, use basic info
-            if (p.id.server === 'c.us') {
-                contacts.push({
-                    phone: p.id.user,
-                    name: p.id.user,
-                    company: '',
-                });
+        for (const p of participants) {
+            try {
+                const contact = await client.getContactById(p.id._serialized);
+                if (contact && p.id.server === 'c.us') {
+                    // Prioritize: pushname (their WA display name) > saved name > shortName > phone number
+                    const name = contact.pushname || contact.name || contact.shortName || p.id.user || '';
+                    contacts.push({
+                        phone: p.id.user,
+                        name,
+                        company: '',
+                    });
+                }
+            } catch (e) {
+                // If we can't get contact details, use basic info
+                if (p.id.server === 'c.us') {
+                    contacts.push({
+                        phone: p.id.user,
+                        name: p.id.user,
+                        company: '',
+                    });
+                }
             }
         }
-    }
 
-    return contacts;
+        return contacts;
+    } catch (error) {
+        if (retries > 0 && (error.message.includes('detached Frame') || error.message.includes('Execution context was destroyed'))) {
+            console.warn(`[Session ${sessionId}] Detached frame error, retrying getGroupParticipants (${retries} retries left)...`);
+            await new Promise(r => setTimeout(r, 2000));
+            return getGroupParticipants(sessionId, groupId, retries - 1);
+        }
+        throw error;
+    }
 }
 
 function getClient(sessionId) {

@@ -67,6 +67,7 @@ async function sendBulk(sessionId, contacts, template, options = {}) {
     const mediaPath = options.mediaPath || null;
     const mediaPaths = options.mediaPaths || null;
     const buttonsData = options.buttons || null;
+    const campaignName = options.name || null;
 
     // Prepare media files (multiple or single for backward compat)
     const mediaList = [];
@@ -95,7 +96,7 @@ async function sendBulk(sessionId, contacts, template, options = {}) {
         campaignsDb.update(campaignId, { status: 'running', completed_at: null });
         activeCampaignId = campaignId;
     } else {
-        activeCampaignId = campaignsDb.create(sessionId, groupName, template, contacts.length, buttonsData, mediaPath, mediaPaths, minDelay, maxDelay);
+        activeCampaignId = campaignsDb.create(sessionId, groupName, template, contacts.length, buttonsData, mediaPath, mediaPaths, minDelay, maxDelay, campaignName);
     }
 
     const results = [];

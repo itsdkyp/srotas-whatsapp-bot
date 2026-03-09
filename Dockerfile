@@ -17,6 +17,9 @@ RUN --mount=type=cache,target=/root/.npm \
 # Copy app source code
 COPY . .
 
+# Build the Next.js frontend (exports static files to /app/public)
+RUN cd frontend && npm install && rm -rf ../public/dev ../public/types ../public/.next && npm run build
+
 # Stage 2: Lean runtime image
 FROM node:18-alpine
 

@@ -8,8 +8,9 @@
     "dev": "node server.js",
     "electron:start": "electron .",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
-    "build:win": "electron-builder --win --publish never",
-    "build:mac": "electron-builder --mac --publish never"
+    "build:ui": "cd frontend && rm -rf ../public/dev ../public/types ../public/.next && npm install && npm run build",
+    "build:win": "npm run build:ui && electron-builder --win --publish never",
+    "build:mac": "npm run build:ui && electron-builder --mac --publish never"
   },
   "build": {
     "appId": "com.srotas.whatsappbot",
