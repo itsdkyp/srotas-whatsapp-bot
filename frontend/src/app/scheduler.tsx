@@ -86,7 +86,7 @@ export function Scheduler() {
     const handleToggle = async (id: string, enabled: boolean) => {
         try {
             await toggleSchedule(id, enabled);
-            setSchedules(prev => prev.map(s => s.id === id ? { ...s, is_enabled: enabled } : s));
+            setSchedules(prev => prev.map(s => s.id === id ? { ...s, enabled: enabled } : s));
         } catch (error) {
             toast.error('Failed to toggle status');
         }
@@ -114,7 +114,7 @@ export function Scheduler() {
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {schedules.map(s => (
-                        <Card key={s.id} className={`flex flex-col ${!s.is_enabled ? 'opacity-70' : ''}`}>
+                        <Card key={s.id} className={`flex flex-col ${!s.enabled ? 'opacity-70' : ''}`}>
                             <CardHeader className="bg-secondary/30 pb-4">
                                 <div className="flex justify-between items-start">
                                     <div>
@@ -124,7 +124,7 @@ export function Scheduler() {
                                         </CardDescription>
                                     </div>
                                     <Switch
-                                        checked={s.is_enabled === 1 || s.is_enabled === true}
+                                        checked={s.enabled === 1 || s.enabled === true}
                                         onCheckedChange={(c) => handleToggle(s.id, c)}
                                     />
                                 </div>

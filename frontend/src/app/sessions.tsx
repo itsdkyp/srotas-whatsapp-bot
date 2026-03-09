@@ -75,8 +75,8 @@ export function Sessions() {
     const handleDelete = async (id: string) => { if (!confirm('Delete this session?')) return; try { await deleteSession(id); toast.success('Deleted'); fetchSessions(); } catch { toast.error('Failed to delete'); } };
 
     const toggleAutoReply = async (id: string, v: boolean) => { try { await setAutoReply(id, v); setSessions(p => p.map(s => s.id === id ? { ...s, auto_reply: v } : s)); } catch { toast.error('Failed to update'); } };
-    const toggleAiReplies = async (id: string, v: boolean) => { try { await setAiReplies(id, v); setSessions(p => p.map(s => s.id === id ? { ...s, ai_replies: v } : s)); } catch { toast.error('Failed to update'); } };
-    const toggleQuickReplies = async (id: string, v: boolean) => { try { await setQuickReplies(id, v); setSessions(p => p.map(s => s.id === id ? { ...s, quick_replies: v } : s)); } catch { toast.error('Failed to update'); } };
+    const toggleAiReplies = async (id: string, v: boolean) => { try { await setAiReplies(id, v); setSessions(p => p.map(s => s.id === id ? { ...s, ai_replies_enabled: v } : s)); } catch { toast.error('Failed to update'); } };
+    const toggleQuickReplies = async (id: string, v: boolean) => { try { await setQuickReplies(id, v); setSessions(p => p.map(s => s.id === id ? { ...s, quick_replies_enabled: v } : s)); } catch { toast.error('Failed to update'); } };
 
     const statusColor = (st: string) =>
         st === 'ready' ? 'badge-success' : st === 'disconnected' ? 'badge-destructive' : 'badge-warning';
@@ -171,13 +171,13 @@ export function Sessions() {
                                                 <Label htmlFor={`ai-${session.id}`} className="flex items-center gap-2 cursor-pointer text-sm">
                                                     <Brain className="w-4 h-4 text-purple-400" /> AI Responses
                                                 </Label>
-                                                <Switch id={`ai-${session.id}`} checked={session.ai_replies === 1 || session.ai_replies === true} onCheckedChange={(c) => toggleAiReplies(session.id, c)} />
+                                                <Switch id={`ai-${session.id}`} checked={session.ai_replies_enabled === 1 || session.ai_replies_enabled === true} onCheckedChange={(c) => toggleAiReplies(session.id, c)} />
                                             </div>
                                             <div className="flex items-center justify-between">
                                                 <Label htmlFor={`qr-${session.id}`} className="flex items-center gap-2 cursor-pointer text-sm">
                                                     <Zap className="w-4 h-4 text-yellow-400" /> Quick Replies
                                                 </Label>
-                                                <Switch id={`qr-${session.id}`} checked={session.quick_replies === 1 || session.quick_replies === true} onCheckedChange={(c) => toggleQuickReplies(session.id, c)} />
+                                                <Switch id={`qr-${session.id}`} checked={session.quick_replies_enabled === 1 || session.quick_replies_enabled === true} onCheckedChange={(c) => toggleQuickReplies(session.id, c)} />
                                             </div>
                                         </div>
                                     </div>
