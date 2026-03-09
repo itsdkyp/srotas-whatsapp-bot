@@ -22,6 +22,8 @@ jobs:
         run: cd frontend && npm ci
       - name: Build Frontend
         run: npm run build:ui
+      - name: Run Backend API Tests
+        run: npm test
 
   build-docker:
     name: Docker Build Check

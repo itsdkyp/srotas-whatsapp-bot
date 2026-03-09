@@ -6,7 +6,7 @@ uploads/
 .wwebjs_cache/
 
 # Test scratch files
-tests/
+tests/scratch/
 
 # Backup files
 *.backup.*
