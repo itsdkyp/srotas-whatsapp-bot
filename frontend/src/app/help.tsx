@@ -36,7 +36,7 @@ export function Help() {
                             <AccordionContent className="text-muted-foreground space-y-6 pb-6">
                                 <div>
                                     <h4 className="text-foreground font-medium mb-1">1. Connect Your WhatsApp Account</h4>
-                                    <p>Go to <strong>Sessions</strong> → Click <strong>+ Add Account</strong> → Scan the QR code with WhatsApp (Linked Devices).</p>
+                                    <p>Go to <strong>Devices</strong> → Click <strong>+ Add Account</strong> → Scan the QR code with WhatsApp (Linked Devices).</p>
                                 </div>
                                 <div>
                                     <h4 className="text-foreground font-medium mb-1">2. Import Your Contacts</h4>
@@ -111,20 +111,16 @@ export function Help() {
 
                         <AccordionItem value="item-4" className="px-6 border-b">
                             <AccordionTrigger className="hover:no-underline py-6">
-                                <span className="text-lg font-semibold flex items-center gap-2">🔘 Adding Clickable Buttons</span>
+                                <span className="text-lg font-semibold flex items-center gap-2">🖼️ Sending Multiple Media Files</span>
                             </AccordionTrigger>
                             <AccordionContent className="text-muted-foreground space-y-4 pb-6">
-                                <p>Add interactive poll-based buttons to your campaigns (up to 3 buttons):</p>
+                                <p>You can send up to 10 images, videos, or documents per message!</p>
                                 <ol className="pl-5 list-decimal space-y-1">
-                                    <li>When creating a campaign, scroll to <strong>Clickable Buttons</strong> section</li>
-                                    <li>Click <strong>+ Add Button</strong></li>
-                                    <li>Enter button label (e.g., "View Pricing")</li>
-                                    <li>Enter auto-reply content (what to send when clicked)</li>
-                                    <li>When recipients tap a button, they see a poll and the bot auto-sends your reply</li>
+                                    <li>When creating a campaign or template, scroll to the <strong>Media Attachments</strong> section</li>
+                                    <li>Click to browse or drag-and-drop your files</li>
+                                    <li>The live <strong>Message Preview</strong> will instantly show you how it looks</li>
+                                    <li>Just like official WhatsApp, your text message acts as the <strong>caption</strong> for the first media file! Subsequent media files are sent securely in the same batch.</li>
                                 </ol>
-                                <div className="mt-4 p-4 bg-green-500/10 border-l-4 border-green-500 rounded-r-lg">
-                                    <strong className="text-green-700 dark:text-green-400">💡 Tip:</strong> Buttons appear as a poll after your message. When a contact selects an option, the bot automatically sends the configured reply.
-                                </div>
                             </AccordionContent>
                         </AccordionItem>
 
@@ -209,13 +205,13 @@ export function Help() {
                             </AccordionTrigger>
                             <AccordionContent className="text-muted-foreground space-y-6 pb-6">
                                 <div>
-                                    <h4 className="text-foreground font-medium mb-1">Session shows "Disconnected" or "Error"</h4>
+                                    <h4 className="text-foreground font-medium mb-1">Device shows "Disconnected" or "Error"</h4>
                                     <p>Click <strong>🔗 Relink</strong> to clear auth and scan a fresh QR code.</p>
                                 </div>
                                 <div>
                                     <h4 className="text-foreground font-medium mb-1">Messages not sending</h4>
                                     <ul className="list-disc pl-5 space-y-1">
-                                        <li>Ensure WhatsApp session status is "Connected"</li>
+                                        <li>Ensure WhatsApp device status is "Connected"</li>
                                         <li>Check phone numbers have country code (e.g., +919876543210)</li>
                                         <li>View campaign analytics for error details</li>
                                     </ul>
@@ -227,10 +223,6 @@ export function Help() {
                                         <li>Ensure 'phone' column exists and has valid numbers</li>
                                         <li>Check file is saved as CSV (not Excel format)</li>
                                     </ul>
-                                </div>
-                                <div>
-                                    <h4 className="text-foreground font-medium mb-1">Buttons showing as text</h4>
-                                    <p>This is normal — WhatsApp native buttons are deprecated. Buttons appear as polls (clickable options) after your message.</p>
                                 </div>
                             </AccordionContent>
                         </AccordionItem>

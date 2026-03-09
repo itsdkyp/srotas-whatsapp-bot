@@ -84,9 +84,9 @@ All user data is stored in named Docker volumes that survive container restarts 
 
 | Volume | Contents |
 |---|---|
-| `deploy_whatsapp-data` | SQLite database (sessions, contacts, campaigns, settings) |
+| `deploy_whatsapp-data` | SQLite database (devices, contacts, campaigns, settings) |
 | `deploy_whatsapp-uploads` | Uploaded CSV / Excel files |
-| `deploy_whatsapp-auth` | WhatsApp session auth (avoids re-scanning QR) |
+| `deploy_whatsapp-auth` | WhatsApp device auth (avoids re-scanning QR) |
 | `deploy_whatsapp-cache` | WhatsApp Web browser cache |
 
 ### Backup & Restore
@@ -142,7 +142,7 @@ open http://localhost:3000
 
 ```bash
 # Stop the server (Ctrl+C), then:
-rm -rf data/           # wipes SQLite DB — resets license, sessions, contacts
+rm -rf data/           # wipes SQLite DB — resets license, devices, contacts
 rm -rf .wwebjs_auth/   # forces QR re-scan on next start
 rm -rf .wwebjs_cache/  # clears WhatsApp Web asset cache
 npm run dev
@@ -160,16 +160,16 @@ The app requires a one-time license key on first launch.
 - Once activated, the key is stored locally and the screen never appears again
 - The **Settings page** shows your license status, masked key, expiry date, and days remaining with a colour-coded badge (✅ Active / ⚠️ Expiring Soon / 🔴 Critical)
 
-### 📱 WhatsApp Sessions (Multi-Account)
+### 📱 WhatsApp Devices (Multi-Account)
 
 Connect one or more WhatsApp accounts via QR code.
 
-1. Go to **Sessions** → **+ Add Account**
+1. Go to **Devices** → **+ Add Account**
 2. Enter a name (e.g. "Business", "Support")
 3. Scan the QR code with WhatsApp → **Settings** → **Linked Devices** → **Link a Device**
-4. The session shows **● Connected** when ready
+4. The device shows **● Connected** when ready
 
-> Sessions persist across restarts using local auth stored in `.wwebjs_auth/`. Multiple sessions are staggered on startup to prevent CPU overload.
+> Devices persist across restarts using local auth stored in `.wwebjs_auth/`. Multiple devices are staggered on startup to prevent CPU overload.
 
 ### 📂 Contact Import (CSV / Excel)
 
@@ -191,7 +191,7 @@ phone,name,company,city
 
 Send personalized messages to entire contact groups.
 
-1. Go to **Campaigns** → select **Session** and **Contact Group**
+1. Go to **Campaigns** → select **Device** and **Contact Group**
 2. Write a message template with `{{placeholders}}`:
 
 ```
@@ -210,7 +210,7 @@ Best regards, Team
 Automate sends on a recurring schedule.
 
 1. Go to **Scheduler** → **+ New Schedule**
-2. Set: Session, Contact Group, Template, Frequency (Daily / Weekly / Monthly), Time
+2. Set: Device, Contact Group, Template, Frequency (Daily / Weekly / Monthly), Time
 3. Schedules can be toggled on/off and show **next run** / **last run** timestamps
 
 ### ⚡ Quick Replies
@@ -235,7 +235,7 @@ Automatically reply to incoming WhatsApp messages using Gemini or OpenAI.
 
 1. Go to **Settings** → configure **AI Provider** and **API Key**
 2. Customize the **System Prompt** (personality and instructions)
-3. Go to **Sessions** → toggle **Auto-Reply ON** for the desired session
+3. Go to **Devices** → toggle **Auto-Reply ON** for the desired device
 
 The bot maintains local conversation history in SQLite for contextual follow-up replies.
 
@@ -255,7 +255,7 @@ Activate with the special Easter Egg key to unlock a hidden **🛡️ Admin** it
 - **Issued Keys history** — a scrollable table of every key generated, with expiry dates and one-click copy
 - History is persisted in SQLite (up to 100 entries)
 
-The admin API endpoints (`/api/admin/*`) refuse requests that are not from an Easter Egg session with a `403 Forbidden`.
+The admin API endpoints (`/api/admin/*`) refuse requests that are not from an Easter Egg device with a `403 Forbidden`.
 
 ---
 
@@ -285,14 +285,14 @@ Configure via `.env` file or the Settings page in the dashboard:
 | `GET` | `/api/license-status` | Returns `{ activated, isLifetime, expiryDate, daysRemaining, keyMasked }` |
 | `POST` | `/api/activate` | Activate with `{ key }` |
 
-### Sessions
+### Devices
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/sessions` | List all sessions |
-| `POST` | `/api/sessions` | Create session `{ name }` |
-| `DELETE` | `/api/sessions/:id` | Remove session |
-| `POST` | `/api/sessions/:id/restart` | Restart a session |
+| `GET` | `/api/sessions` | List all devices |
+| `POST` | `/api/sessions` | Create device `{ name }` |
+| `DELETE` | `/api/sessions/:id` | Remove device |
+| `POST` | `/api/sessions/:id/restart` | Restart a device |
 | `POST` | `/api/sessions/:id/relink` | Force QR re-scan |
 | `PUT` | `/api/sessions/:id/auto-reply` | Toggle auto-reply `{ enabled }` |
 
@@ -311,7 +311,7 @@ Configure via `.env` file or the Settings page in the dashboard:
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/api/messages/send-bulk` | Send bulk `{ sessionId, group, template }` |
+| `POST` | `/api/messages/send-bulk` | Send bulk `{ deviceId, group, template }` |
 | `POST` | `/api/messages/preview` | Preview rendered template |
 | `GET` | `/api/messages?phone=&limit=` | Message history |
 
@@ -364,20 +364,12 @@ srotas-whatsapp-bot/
 │       ├── provider.js             # Gemini / OpenAI adapter
 │       └── memory.js               # Conversation history
 │
-├── public/                         # Frontend SPA
-│   ├── index.html
-│   ├── css/style.css
-│   └── js/
-│       ├── app.js                  # SPA router + utilities
-│       ├── sessions.js
-│       ├── contacts.js
-│       ├── messaging.js
-│       ├── scheduler.js
-│       ├── templates.js
-│       ├── quickreplies.js
-│       ├── settings.js
-│       ├── admin.js                # Admin panel (Easter Egg)
-│       └── help.js
+├── frontend/                       # Next.js React Frontend UI
+│   ├── src/app/                    # Next.js App Router (Pages)
+│   ├── src/components/             # Shadcn UI Components
+│   └── src/lib/                    # API clients and utilities
+│
+├── public/                         # Compiled static UI (auto-generated)
 │
 ├── deploy/
 │   ├── docker-compose.prod.yml     # Production compose file
@@ -390,7 +382,7 @@ srotas-whatsapp-bot/
 │
 ├── data/                           # SQLite database (auto-created)
 ├── uploads/                        # Uploaded files (auto-created)
-└── .wwebjs_auth/                   # WhatsApp session auth (auto-created)
+└── .wwebjs_auth/                   # WhatsApp device auth (auto-created)
 ```
 
 ---
@@ -430,8 +422,8 @@ npm run dev   # or restart Docker container
 
 - **WhatsApp ToS:** Using unofficial WhatsApp automation may violate WhatsApp's Terms of Service. Use responsibly and at your own risk.
 - **Rate Limiting:** Always use appropriate delays (8–18 seconds recommended). Sending too fast may result in a temporary number ban.
-- **Session Persistence:** Sessions are stored in `.wwebjs_auth/`. Deleting this folder forces a full QR re-scan.
-- **Multiple Sessions on Startup:** Sessions are staggered 3.5 seconds apart to avoid overloading the CPU when multiple accounts reconnect simultaneously.
+- **Device Persistence:** Devices are stored in `.wwebjs_auth/`. Deleting this folder forces a full QR re-scan.
+- **Multiple Devices on Startup:** Devices are staggered 3.5 seconds apart to avoid overloading the CPU when multiple accounts reconnect simultaneously.
 
 ---
 
