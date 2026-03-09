@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Stage 1: Build & Dependencies
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 # Cache apk packages between builds (speeds up repeated builds significantly)
 RUN --mount=type=cache,target=/var/cache/apk \
@@ -21,7 +21,7 @@ COPY . .
 RUN npm run build:ui
 
 # Stage 2: Lean runtime image
-FROM node:18-alpine
+FROM node:20-alpine
 
 # Cache apk packages between builds
 RUN --mount=type=cache,target=/var/cache/apk \
