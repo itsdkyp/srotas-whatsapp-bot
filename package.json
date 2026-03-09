@@ -8,7 +8,7 @@
     "dev": "node server.js",
     "electron:start": "electron .",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
-    "build:ui": "cd frontend && rm -rf ../public/dev ../public/types ../public/.next && npm install && npm run build",
+    "build:ui": "node -e \"const fs=require('fs');['public/dev','public/types','public/.next'].forEach(p=>fs.rmSync(p,{recursive:true,force:true}))\" && cd frontend && npm install && npm run build",
     "build:win": "npm run build:ui && electron-builder --win --publish never",
     "build:mac": "npm run build:ui && electron-builder --mac --publish never"
   },
