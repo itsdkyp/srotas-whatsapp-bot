@@ -110,7 +110,25 @@ function createClient(sessionId, name, retryCount = 0) {
     });
 
     // Base args (Linux/Docker-safe and performance-optimized)
-    const puppeteerArgs = [];
+    const puppeteerArgs = [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process', // <- this one doesn't work in Windows
+        '--disable-gpu'
+    ];
+
+    // Windows doesn't support --single-process and --no-zygote well, so we remove them conditionally if needed,
+    // but typically just removing single-process for windows is safer:
+    if (isWindows) {
+        const idx = puppeteerArgs.indexOf('--single-process');
+        if (idx !== -1) puppeteerArgs.splice(idx, 1);
+        const zIdx = puppeteerArgs.indexOf('--no-zygote');
+        if (zIdx !== -1) puppeteerArgs.splice(zIdx, 1);
+    }
 
     const client = new Client({
         authStrategy,
