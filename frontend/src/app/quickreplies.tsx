@@ -82,7 +82,7 @@ export function QuickReplies() {
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {replies.map(r => (
-                        <Card key={r.id} className={`flex flex-col ${!r.is_enabled ? 'opacity-70' : ''}`}>
+                        <Card key={r.id} className={`flex flex-col ${!r.enabled ? 'opacity-70' : ''}`}>
                             <CardHeader className="bg-secondary/30 pb-4">
                                 <div className="flex justify-between items-start">
                                     <div>
@@ -92,7 +92,7 @@ export function QuickReplies() {
                                         <CardDescription className="mt-1">{r.button_label}</CardDescription>
                                     </div>
                                     <Switch
-                                        checked={r.is_enabled === 1 || r.is_enabled === true}
+                                        checked={r.enabled === 1 || r.enabled === true}
                                         onCheckedChange={(c) => handleToggle(r.id, c)}
                                     />
                                 </div>
