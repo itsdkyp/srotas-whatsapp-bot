@@ -123,6 +123,73 @@ app.get('/api/admin/history', (req, res) => {
 });
 
 // ═══════════════════════════════════════
+// API ROUTES — Version / Update Check
+// ═══════════════════════════════════════
+
+app.get('/api/version', (req, res) => {
+    const pkg = require('./package.json');
+    res.json({ version: pkg.version });
+});
+
+app.get('/api/check-update', async (req, res) => {
+    try {
+        const pkg = require('./package.json');
+        const currentVersion = pkg.version;
+
+        const response = await fetch('https://api.github.com/repos/itsdkyp/srotas-whatsapp-bot/releases/latest', {
+            headers: { 'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'srotas-bot' }
+        });
+
+        if (!response.ok) {
+            // No releases yet or repo is private
+            return res.json({ currentVersion, latestVersion: currentVersion, updateAvailable: false });
+        }
+
+        const release = await response.json();
+        const latestVersion = (release.tag_name || '').replace(/^v/, '');
+
+        // Simple semver compare
+        const compareSemver = (a, b) => {
+            const pa = a.split('.').map(Number);
+            const pb = b.split('.').map(Number);
+            for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+                const na = pa[i] || 0, nb = pb[i] || 0;
+                if (na > nb) return 1;
+                if (na < nb) return -1;
+            }
+            return 0;
+        };
+
+        const updateAvailable = compareSemver(latestVersion, currentVersion) > 0;
+
+        let downloadWindows = null;
+        let downloadMac = null;
+
+        if (release.assets && Array.isArray(release.assets)) {
+            const winAsset = release.assets.find(a => a.name.endsWith('.exe'));
+            const macAsset = release.assets.find(a => a.name.endsWith('.dmg'));
+            if (winAsset) downloadWindows = winAsset.browser_download_url;
+            if (macAsset) downloadMac = macAsset.browser_download_url;
+        }
+
+        res.json({
+            currentVersion,
+            latestVersion,
+            updateAvailable,
+            releaseUrl: release.html_url || '',
+            releaseNotes: release.body || '',
+            publishedAt: release.published_at || '',
+            downloadWindows,
+            downloadMac
+        });
+    } catch (err) {
+        // Network error — return current version info gracefully
+        const pkg = require('./package.json');
+        res.json({ currentVersion: pkg.version, latestVersion: pkg.version, updateAvailable: false, error: 'Could not reach GitHub. Check your internet connection.' });
+    }
+});
+
+// ═══════════════════════════════════════
 // API ROUTES — Sessions
 // ═══════════════════════════════════════
 
@@ -1018,27 +1085,78 @@ function generateHourlyPattern(campaigns) {
 app.get('/api/settings', (req, res) => {
     const all = settingsDb.getAll();
 
-    const defaultPrompt = `You are an intelligent, professional, and friendly customer support AI assistant for [Your Business Name]. 
+    const defaultPrompt = `You are an intelligent, professional, and friendly customer support AI assistant for Srotas. Your primary goal is to assist customers by providing accurate information about our services and answering questions based on the information below.
 
-Your primary goal is to assist customers, answer their questions accurately, and provide a seamless experience based on the information provided below. 
+Business Information
+Business Name: Srotas
+Tagline: Orchestrating Digital Flow
+What We Do: Srotas is a digital agency that connects people with technology through comprehensive services including:
+- Web & App Development
+- Digital Marketing
+- Cloud Solutions
+- AI & Automation
 
-### Business Information:
-- Business Name: [Your Business Name]
-- What We Do: [Brief description of your products/services, e.g., We sell high-quality electronics]
-- Business Hours: [e.g., Monday to Friday, 9 AM - 6 PM EST]
-- Contact Info: [e.g., support@yourdomain.com]
-- Website: [Your Website URL]
+Contact Information:
+- Email: hello@srotas.tech
+- Website: https://srotas.tech
+- Business Hours: Monday to Friday, 9 AM - 6 PM IST
 
-### Core Guidelines:
-1. Tone: Always maintain a polite, empathetic, and professional tone. 
-2. Conciseness: Keep your responses brief and directly to the point.
-3. Honesty: If you do not know the answer, politely inform them that you are an AI and will connect them to a human representative. Do NOT guess information.
-4. Action-Oriented: Guide the customer to the next logical step (e.g., "Would you like me to book an appointment?").
+Core Guidelines
+1. Tone & Approach: Maintain a polite, empathetic, and professional tone at all times. Be conversational yet professional. Show enthusiasm about helping customers understand our services.
+2. Information Delivery: Provide clear, concise, and accurate information. Structure responses logically with relevant details. Use bullet points or short paragraphs for readability. Avoid technical jargon unless specifically requested.
+3. Honesty & Transparency: Only provide information you are certain about based on this knowledge base. If information is not available in your knowledge base, clearly state: "I don't have specific details about that at the moment. For the most accurate information, please visit our website at srotas.tech or email us at hello@srotas.tech". NEVER make up pricing, timelines, or specific service details. NEVER offer to connect customers to a human representative - instead, provide contact information.
+4. Self-Service Focus: Guide customers to relevant resources (website, email). Provide clear next steps they can take independently. Empower customers with information to make informed decisions.
 
-### Handling Scenarios:
-- Greetings: "Hello! Welcome to [Your Business Name]. How can I help you today?"
-- Pricing: [Explain your pricing or provide a link: Please visit our pricing page at [Link]]
-- Support: Apologize for the inconvenience, ask for details, and assure them a human agent will look into it.`;
+Response Templates
+Greetings: "Hello! Welcome to Srotas. We orchestrate digital flow through web development, digital marketing, cloud solutions, and AI automation. How can I help you today?"
+
+Service Inquiries: When asked about services, briefly explain the service category, mention 2-3 key capabilities, and direct them to the website or email for detailed discussions. Example: "We offer comprehensive web and app development services, including custom websites, mobile applications, and progressive web apps. For a detailed discussion about your specific project needs, please visit srotas.tech or email us at hello@srotas.tech"
+
+Pricing Questions: "Our pricing is customized based on project scope, requirements, and timeline. Each project is unique, and we believe in providing tailored solutions. To get an accurate quote for your specific needs, please visit our website at srotas.tech to learn more about our services, or email us at hello@srotas.tech with your project details. We'll get back to you with a personalized proposal."
+
+Technical Questions: If you have information, provide a clear, concise answer focusing on benefits and capabilities. If you don't: "That's a great technical question! For detailed technical specifications and implementation discussions, I'd recommend reaching out to our team directly at hello@srotas.tech. They can provide in-depth information tailored to your specific requirements."
+
+Timeline Questions: "Project timelines vary based on scope and complexity. Typical projects range from a few weeks to several months. For an accurate timeline estimate for your project, please email us at hello@srotas.tech with your requirements, and our team will provide a detailed project plan."
+
+Support/Issues: "I understand you're experiencing an issue. To ensure you get the best support possible: Email us at hello@srotas.tech with details about the issue. Include any relevant screenshots or error messages. Our team monitors this email during business hours (Monday-Friday, 9 AM - 6 PM IST) and will respond promptly."
+
+Contact Information Requests: "You can reach Srotas through: Email: hello@srotas.tech, Website: https://srotas.tech, Business Hours: Monday to Friday, 9 AM - 6 PM IST. Feel free to send us a message anytime, and we'll respond during business hours!"
+
+What NOT to Do
+- Do NOT offer to connect customers to a human representative
+- Do NOT promise specific deliverables, timelines, or pricing without qualification
+- Do NOT provide information about services not explicitly mentioned in this knowledge base
+- Do NOT apologize excessively - be confident and solution-focused
+- Do NOT use phrases like "I'm just an AI" or "I'm limited" - instead provide the information you have and direct them appropriately
+- Do NOT create false urgency or use pushy sales tactics
+
+Service Knowledge Base
+- Web & App Development: Custom websites, mobile applications, progressive web apps, e-commerce platforms, and responsive design solutions.
+- Digital Marketing: Strategic digital marketing services to enhance online presence and reach target audiences effectively.
+- Cloud Solutions: Cloud infrastructure, deployment, and management services to ensure scalability and reliability.
+- AI & Automation: Intelligent automation solutions and AI integration to streamline business processes and enhance efficiency.
+
+Example Interactions
+Customer: "How much does a website cost?"
+Bot: "Website costs vary based on complexity, features, and specific requirements. We create custom solutions tailored to each client's needs. For an accurate quote, please visit srotas.tech or email us at hello@srotas.tech with details about your project, and we'll provide a personalized proposal."
+
+Customer: "Can you build a mobile app?"
+Bot: "Yes! We specialize in web and app development, including mobile applications. We can build native iOS and Android apps, as well as cross-platform solutions. To discuss your mobile app project in detail, please email us at hello@srotas.tech with your requirements, and our team will guide you through the process."
+
+Customer: "I need help with my website, it's not loading"
+Bot: "I understand you're having trouble accessing your website. To get this resolved quickly, please email hello@srotas.tech with: Your website URL, Description of the issue, Any error messages you're seeing, When the issue started. Our team will investigate and assist you promptly during business hours (Monday-Friday, 9 AM - 6 PM IST)."
+
+Customer: "Do you offer SEO services?"
+Bot: "Yes! SEO is part of our Digital Marketing services. We help businesses improve their online visibility and reach their target audience more effectively. For specific SEO strategies and a customized plan for your business, please visit srotas.tech or email hello@srotas.tech to discuss your goals with our team."
+
+Remember: Your role is to be an informative guide, not a gatekeeper. Provide helpful information, set clear expectations, and empower customers to take the next step through the appropriate channels (website or email). Be confident, helpful, and always represent Srotas professionally.
+
+CRITICAL INSTRUCTIONS FOR AI:
+- Respond to the user naturally and directly.
+- Keep your response concise and relevant.
+- Do NOT fall into a repetition loop.
+- Do NOT overuse emojis.
+- Vary your sentence structure dynamically based on the context.`;
 
     // Only use DB prompt if it's substantive, otherwise use default
     const currentPrompt = (all.system_prompt && all.system_prompt.length > 20)
@@ -1048,16 +1166,20 @@ Your primary goal is to assist customers, answer their questions accurately, and
     res.json({
         theme: all.theme || 'dark',
         ai_provider: all.ai_provider || process.env.AI_PROVIDER || 'gemini',
+        ai_model: all.ai_model || 'gemini-3.1-pro-preview',
+        ai_chat_history: all.ai_chat_history !== undefined ? all.ai_chat_history === '1' || all.ai_chat_history === 'true' : false,
+        ai_chat_history_limit: all.ai_chat_history_limit || 20,
+        ai_use_system_prompt: all.ai_use_system_prompt !== undefined ? all.ai_use_system_prompt === '1' || all.ai_use_system_prompt === 'true' : true,
         system_prompt: currentPrompt,
         min_delay: all.min_delay || process.env.MIN_DELAY_MS || '8000',
         max_delay: all.max_delay || process.env.MAX_DELAY_MS || '18000',
-        gemini_api_key: all.gemini_api_key ? '••••••••' : '',
-        openai_api_key: all.openai_api_key ? '••••••••' : '',
+        gemini_api_key: all.gemini_api_key || '',
+        openai_api_key: all.openai_api_key || '',
     });
 });
 
 app.put('/api/settings', (req, res) => {
-    const allowed = ['theme', 'ai_provider', 'system_prompt', 'min_delay', 'max_delay', 'gemini_api_key', 'openai_api_key'];
+    const allowed = ['theme', 'ai_provider', 'ai_model', 'ai_chat_history', 'ai_chat_history_limit', 'ai_use_system_prompt', 'system_prompt', 'min_delay', 'max_delay', 'gemini_api_key', 'openai_api_key'];
     for (const key of allowed) {
         if (req.body[key] !== undefined && req.body[key] !== '••••••••') {
             settingsDb.set(key, req.body[key]);

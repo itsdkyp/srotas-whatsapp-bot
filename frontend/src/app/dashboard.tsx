@@ -278,8 +278,9 @@ export function Dashboard() {
                         </div>
                         {[
                             { label: 'Conversations', val: aiAnalytics?.totalConversations || 0 },
-                            { label: 'AI Messages', val: aiAnalytics?.totalMessagesHandled || 0 },
-                            { label: 'Avg Response', val: `${aiAnalytics?.avgResponseTimeMs ? Math.round(aiAnalytics.avgResponseTimeMs / 1000) : 0}s` },
+                            { label: 'AI Messages', val: aiAnalytics?.messagesHandled || aiAnalytics?.totalMessagesHandled || 0 },
+                            { label: 'Avg Response', val: `${aiAnalytics?.avgResponseTime || (aiAnalytics?.avgResponseTimeMs ? Math.round(aiAnalytics.avgResponseTimeMs / 1000) : 0)}s` },
+                            { label: 'Avg Context', val: `${aiAnalytics?.avgHistoryMessages || 0} msgs` },
                         ].map(item => (
                             <div key={item.label} className="flex justify-between items-center py-1.5 border-b border-border/50 last:border-0">
                                 <span className="text-muted-foreground text-xs">{item.label}</span>
@@ -300,8 +301,8 @@ export function Dashboard() {
                         {[
                             { label: 'Total Triggers', val: quickReplyAnalytics?.totalTriggers || 0 },
                             { label: 'Unique Users', val: quickReplyAnalytics?.uniqueUsers || 0 },
-                            { label: 'Avg Response', val: `${quickReplyAnalytics?.avgResponseTimeMs ? Math.round(quickReplyAnalytics.avgResponseTimeMs) : 0}ms` },
-                            { label: 'Most Used', val: quickReplyAnalytics?.mostUsedKeyword || '—' },
+                            { label: 'Avg Response', val: `${quickReplyAnalytics?.avgResponseTime || quickReplyAnalytics?.avgResponseTimeMs || 0}ms` },
+                            { label: 'Most Used', val: quickReplyAnalytics?.mostUsed || quickReplyAnalytics?.mostUsedKeyword || '—' },
                         ].map(item => (
                             <div key={item.label} className="flex justify-between items-center py-2 border-b border-border/50 last:border-0">
                                 <span className="text-muted-foreground text-xs">{item.label}</span>

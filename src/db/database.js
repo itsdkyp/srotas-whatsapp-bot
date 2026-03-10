@@ -181,6 +181,13 @@ try {
 // Update existing sessions to have correct defaults (migration for old sessions)
 db.exec("UPDATE sessions SET quick_replies_enabled = 1 WHERE quick_replies_enabled IS NULL OR (quick_replies_enabled = 0 AND ai_replies_enabled = 0 AND auto_reply = 0)");
 
+// Add history_messages_count column to auto_reply_logs
+try {
+    db.prepare("SELECT history_messages_count FROM auto_reply_logs LIMIT 0").get();
+} catch (e) {
+    db.exec("ALTER TABLE auto_reply_logs ADD COLUMN history_messages_count INTEGER DEFAULT 0");
+}
+
 // Fix any campaigns stuck in 'running' from previous crashes
 db.exec("UPDATE campaigns SET status = 'completed' WHERE status = 'running' AND started_at < datetime('now', '-1 hour')");
 
@@ -382,17 +389,17 @@ const templates = {
 };
 
 const autoReplyLogs = {
-    add: (sessionId, contactPhone, type, triggerKey, responseTimeMs) => {
+    add: (sessionId, contactPhone, type, triggerKey, responseTimeMs, historyMessagesCount) => {
         db.prepare(
-            'INSERT INTO auto_reply_logs (session_id, contact_phone, type, trigger_key, response_time_ms) VALUES (?, ?, ?, ?, ?)'
-        ).run(sessionId || null, contactPhone, type, triggerKey || null, responseTimeMs || null);
+            'INSERT INTO auto_reply_logs (session_id, contact_phone, type, trigger_key, response_time_ms, history_messages_count) VALUES (?, ?, ?, ?, ?, ?)'
+        ).run(sessionId || null, contactPhone, type, triggerKey || null, responseTimeMs || null, historyMessagesCount || 0);
     },
     getStats: (sinceIso) => {
         const where = sinceIso ? `WHERE timestamp >= '${sinceIso}'` : '';
 
         const aiRows = db.prepare(
             `SELECT COUNT(*) as total, COUNT(DISTINCT contact_phone) as unique_users,
-             AVG(response_time_ms) as avg_ms
+             AVG(response_time_ms) as avg_ms, AVG(history_messages_count) as avg_history
              FROM auto_reply_logs WHERE type = 'ai' ${sinceIso ? `AND timestamp >= '${sinceIso}'` : ''}`
         ).get();
 
@@ -420,6 +427,7 @@ const autoReplyLogs = {
                 totalConversations: aiConversations ? aiConversations.cnt : 0,
                 messagesHandled: aiRows ? aiRows.total : 0,
                 avgResponseTime: aiRows && aiRows.avg_ms ? Math.round(aiRows.avg_ms / 100) / 10 : 0,
+                avgHistoryMessages: aiRows && aiRows.avg_history ? Math.round(aiRows.avg_history * 10) / 10 : 0,
                 successRate: 100
             },
             quickReply: {

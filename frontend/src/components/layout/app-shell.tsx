@@ -270,7 +270,11 @@ export function AppShell({ children }: AppShellProps) {
                         </h2>
                         <p className="text-xs text-muted-foreground">Srotas.bot · WhatsApp Automation Platform</p>
                     </div>
-                    <div className="text-xs px-3 py-1 rounded-full badge-blue font-medium">v1.1.8</div>
+                    <button
+                        onClick={() => setActivePage('updates')}
+                        className="text-xs px-3 py-1 rounded-full badge-blue font-medium cursor-pointer hover:opacity-80 transition-opacity"
+                        title="Check for updates"
+                    >v1.1.8</button>
                 </div>
 
                 {/* Page with transition */}

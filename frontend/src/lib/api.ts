@@ -76,6 +76,8 @@ export const getAnalytics = (range: string = '30days') => api.get(`/analytics?ra
 // Settings
 export const getSettings = () => api.get('/settings').then((r) => r.data);
 export const updateSettings = (data: any) => api.put('/settings', data).then((r) => r.data);
+export const checkForUpdate = () => api.get('/check-update').then((r) => r.data);
+export const getVersion = () => api.get('/version').then((r) => r.data);
 
 // Admin
 export const generateAdminKey = (days: number) => api.post('/admin/generate-key', { days }).then((r) => r.data);

@@ -116,18 +116,12 @@ function createClient(sessionId, name, retryCount = 0) {
         '--disable-dev-shm-usage',
         '--disable-accelerated-2d-canvas',
         '--no-first-run',
-        '--no-zygote',
-        '--single-process', // <- this one doesn't work in Windows
         '--disable-gpu'
     ];
 
-    // Windows doesn't support --single-process and --no-zygote well, so we remove them conditionally if needed,
-    // but typically just removing single-process for windows is safer:
-    if (isWindows) {
-        const idx = puppeteerArgs.indexOf('--single-process');
-        if (idx !== -1) puppeteerArgs.splice(idx, 1);
-        const zIdx = puppeteerArgs.indexOf('--no-zygote');
-        if (zIdx !== -1) puppeteerArgs.splice(zIdx, 1);
+    // --single-process and --no-zygote only work reliably on Linux
+    if (process.platform === 'linux') {
+        puppeteerArgs.push('--no-zygote', '--single-process');
     }
 
     const client = new Client({
@@ -135,15 +129,16 @@ function createClient(sessionId, name, retryCount = 0) {
         puppeteer: {
             executablePath,
             headless: true,
-            args: puppeteerArgs,
+            args: [...puppeteerArgs, '--disable-extensions'],
+            timeout: 60000,
         },
         webVersionCache: {
-            type: 'remote',
-            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
+            type: 'local',
         }
     });
 
     sessionStates.set(sessionId, { status: 'initializing', qr: null });
+    if (io) io.emit('session:status', { sessionId, status: 'initializing' });
 
     client.on('qr', async (qr) => {
         const qrDataUrl = await qrcode.toDataURL(qr, { width: 300 });
@@ -181,7 +176,22 @@ function createClient(sessionId, name, retryCount = 0) {
     });
 
     clients.set(sessionId, client);
-    client.initialize().catch((err) => {
+
+    // Initialize with a timeout so it doesn't hang forever
+    const initTimeout = setTimeout(() => {
+        const state = sessionStates.get(sessionId);
+        if (state && state.status === 'initializing') {
+            console.error(`[Session ${name}] Initialization timed out after 90s`);
+            sessionStates.set(sessionId, { status: 'error', qr: null });
+            sessionDb.updateStatus(sessionId, 'error');
+            if (io) io.emit('session:error', { sessionId, error: 'Initialization timed out' });
+        }
+    }, 90000);
+
+    client.initialize().then(() => {
+        clearTimeout(initTimeout);
+    }).catch((err) => {
+        clearTimeout(initTimeout);
         console.error(`[Session ${name}] Init error:`, err.message);
 
         // Auto-retry once after cleaning locks

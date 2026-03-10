@@ -14,6 +14,7 @@ import { QuickReplies } from './quickreplies';
 import { Settings } from './settings';
 import { Admin } from './admin';
 import { Help } from './help';
+import { Updates } from './updates';
 import { getLicenseStatus, activateLicense } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -159,8 +160,8 @@ export default function Home() {
               className="mt-6 text-xs text-muted-foreground"
             >
               Need a license?{' '}
-              <a href="https://srotas.tech" target="_blank" rel="noreferrer" className="text-primary hover:underline">
-                srotas.tech
+              <a href="https://www.srotas.tech/products/srotas-whatsapp-bot" target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                Buy here
               </a>
             </motion.p>
           </div>
@@ -184,6 +185,7 @@ export default function Home() {
             {activePage === 'settings' && <Settings />}
             {activePage === 'help' && <Help />}
             {activePage === 'admin' && <Admin />}
+            {activePage === 'updates' && <Updates />}
           </div>
         )}
       </AppShell>

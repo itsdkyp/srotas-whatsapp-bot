@@ -101,7 +101,28 @@ function init() {
             if (msg.from.includes('@g.us')) return; // group chat
 
             const contactPhone = msg.from.replace('@c.us', '');
-            const content = msg.body;
+            let content = msg.body;
+
+            // Handle stickers and media that might not have text
+            let mediaData = null;
+            if (msg.hasMedia) {
+                try {
+                    // Try to download media for AI to analyze (stickers, images)
+                    if (msg.type === 'sticker' || msg.type === 'image') {
+                        mediaData = await msg.downloadMedia();
+                    }
+                } catch (e) {
+                    console.error('[MessageHandler] Failed to download media:', e.message);
+                }
+            }
+
+            if (!content || content.trim() === '') {
+                if (msg.type === 'sticker') content = '[User sent a Sticker]';
+                else if (msg.type === 'image') content = '[User sent an Image]';
+                else if (msg.type === 'video') content = '[User sent a Video]';
+                else if (msg.hasMedia) content = '[User sent Media]';
+                else content = '[Unsupported Message]'; // or emoji-only which usually has text, but just in case
+            }
 
             // Store incoming message
             memory.addMessage(contactPhone, 'in', content, sessionId);
@@ -141,9 +162,22 @@ function init() {
 
                 for (const qr of enabledReplies) {
                     const trigger = qr.trigger_key.toLowerCase().trim();
-                    // Check if message contains the trigger as a whole word
-                    const regex = new RegExp(`\\b${escapeRegExp(trigger)}\\b`, 'i');
-                    if (regex.test(trimmedContent)) {
+
+                    // If the trigger contains only word characters (letters/numbers/underscores), use word boundary \b
+                    // Otherwise (like for emojis, punctuation, etc), just use exact match or includes
+                    const isWordCharOnly = /^\w+$/i.test(trigger);
+
+                    let isMatch = false;
+                    if (isWordCharOnly) {
+                        const regex = new RegExp(`\\b${escapeRegExp(trigger)}\\b`, 'i');
+                        isMatch = regex.test(trimmedContent);
+                    } else {
+                        // For emojis or special characters, check if the message equals it or contains it
+                        // Since users might send just the emoji or emoji with text
+                        isMatch = trimmedContent.includes(trigger);
+                    }
+
+                    if (isMatch) {
                         matchedReply = qr;
                         break;
                     }
@@ -187,22 +221,71 @@ function init() {
                 return;
             }
 
-            // Get conversation history for context
-            const history = memory.getHistory(contactPhone, 20);
+            // Get conversation history for context (if enabled)
+            const { settings: settingsDb } = require('../db/database');
+            const chatHistoryEnabled = settingsDb.get('ai_chat_history');
+            const useHistory = chatHistoryEnabled === undefined || chatHistoryEnabled === '1' || chatHistoryEnabled === 'true' || chatHistoryEnabled === true;
+
+            // Add typing indicator so user knows AI is thinking
+            let chat;
+            try {
+                chat = await msg.getChat();
+                await chat.sendStateTyping();
+            } catch (e) {
+                // ignore
+            }
+
+            let history = [];
+            if (useHistory && chat) {
+                try {
+                    // Get custom history limit if defined, default to 20
+                    const historyLimit = parseInt(settingsDb.get('ai_chat_history_limit')) || 20;
+
+                    // Fetch real history directly from WhatsApp instead of internal bot memory
+                    // This includes chats from before the bot was started and messages sent from the phone
+                    const wpMessages = await chat.fetchMessages({ limit: historyLimit });
+                    history = wpMessages
+                        .filter(m => m.id._serialized !== msg.id._serialized) // Exclude current msg
+                        .map(m => {
+                            let text = m.body;
+                            if (!text || text.trim() === '') {
+                                if (m.type === 'sticker') text = '[Sticker]';
+                                else if (m.type === 'image') text = '[Image]';
+                                else if (m.type === 'video') text = '[Video]';
+                                else if (m.hasMedia) text = '[Media]';
+                                else text = '[Message]';
+                            }
+                            return {
+                                direction: m.fromMe ? 'out' : 'in',
+                                content: text
+                            };
+                        });
+                } catch (e) {
+                    console.error('[MessageHandler] Failed to fetch real chat history:', e.message);
+                    const historyLimit = parseInt(settingsDb.get('ai_chat_history_limit')) || 20;
+                    history = memory.getHistory(contactPhone, historyLimit); // Fallback
+                }
+            } else if (useHistory) {
+                const historyLimit = parseInt(settingsDb.get('ai_chat_history_limit')) || 20;
+                history = memory.getHistory(contactPhone, historyLimit); // Fallback
+            }
 
             // Generate AI reply
-            const reply = await generateReply(history, content);
+            const reply = await generateReply(history, content, mediaData);
 
             if (reply && reply.trim()) {
                 // Send reply
                 await msg.reply(reply.trim());
+                if (chat) {
+                    try { await chat.clearState(); } catch (e) { }
+                }
                 // Store outgoing message
                 memory.addMessage(contactPhone, 'out', reply.trim(), sessionId);
                 console.log(`[AutoReply → ${contactPhone}] ${reply.trim().substring(0, 80)}...`);
 
                 // Log AI reply analytics
                 try {
-                    autoReplyLogs.add(sessionId, contactPhone, 'ai', null, Date.now() - msgStartTime);
+                    autoReplyLogs.add(sessionId, contactPhone, 'ai', null, Date.now() - msgStartTime, history.length);
                 } catch (e) { /* non-critical */ }
             }
         } catch (err) {
