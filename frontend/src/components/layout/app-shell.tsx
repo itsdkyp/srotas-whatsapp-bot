@@ -110,8 +110,102 @@ export function AppShell({ children }: AppShellProps) {
 
     const activeLabel = allNavItems.find(n => n.id === activePage)?.label || 'Dashboard';
 
+    const [tourActive, setTourActive] = useState(false);
+    const [tourStep, setTourStep] = useState(0);
+
+    const TOUR_STEPS = [
+        { id: 'dashboard', page: 'dashboard', title: 'Welcome to Srotas.bot!', desc: 'This dashboard gives you a real-time overview of your WhatsApp automation performance, including message delivery rates and active campaigns.' },
+        { id: 'sessions', page: 'sessions', title: 'Device Management', desc: 'Connect multiple WhatsApp accounts simultaneously. Just click Add Account and scan the QR code to scale your outreach.' },
+        { id: 'contacts', page: 'contacts', title: 'CRM & Contacts', desc: 'Import contacts in bulk via CSV, organize them into targeted groups, and manage your entire customer database here.' },
+        { id: 'messaging', page: 'messaging', title: 'Bulk Campaigns', desc: 'Launch targeted messaging campaigns to your groups. The bot uses randomized human-like delays to prevent account bans.' },
+        { id: 'scheduler', page: 'scheduler', title: 'Campaign Scheduler', desc: 'Automate your outreach. Set up daily, weekly, or monthly recurring messages so you never miss a touchpoint.' },
+        { id: 'templates', page: 'templates', title: 'Smart Templates', desc: 'Create reusable message templates with dynamic variables like {{name}} or {{company}} for personalized outreach.' },
+        { id: 'quickreplies', page: 'quickreplies', title: 'Keyword Auto-Replies', desc: 'Define trigger keywords (like "pricing" or "demo") and the bot will instantly reply with the exact information.' },
+        { id: 'settings', page: 'settings', title: 'AI Persona Engine', desc: 'The real magic happens here. Connect your OpenAI or Gemini API key and define a System Prompt. The bot will automatically chat with users using your exact tone, knowledge, and persona!' }
+    ];
+
+    useEffect(() => {
+        const handleStartTour = () => {
+            setTourStep(0);
+            setTourActive(true);
+            setActivePage(TOUR_STEPS[0].page);
+        };
+        window.addEventListener('start-tour', handleStartTour);
+        return () => window.removeEventListener('start-tour', handleStartTour);
+    }, []);
+
+    const nextTourStep = () => {
+        if (tourStep < TOUR_STEPS.length - 1) {
+            const next = tourStep + 1;
+            setTourStep(next);
+            setActivePage(TOUR_STEPS[next].page);
+        } else {
+            setTourActive(false);
+        }
+    };
+
+    const prevTourStep = () => {
+        if (tourStep > 0) {
+            const prev = tourStep - 1;
+            setTourStep(prev);
+            setActivePage(TOUR_STEPS[prev].page);
+        }
+    };
+
     return (
         <div className="flex h-full bg-background text-foreground overflow-hidden">
+            {/* ── Guided Tour Overlay ─────────────────────────────── */}
+            <AnimatePresence>
+                {tourActive && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 50, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 20, scale: 0.95 }}
+                        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                        className="fixed bottom-8 right-8 z-[100] w-[350px] bg-card/95 backdrop-blur-xl border border-primary/40 shadow-2xl rounded-2xl overflow-hidden"
+                    >
+                        <div className="h-1.5 w-full bg-secondary">
+                            <motion.div
+                                className="h-full bg-gradient-to-r from-blue-500 to-cyan-400"
+                                animate={{ width: `${((tourStep + 1) / TOUR_STEPS.length) * 100}%` }}
+                                transition={{ duration: 0.3 }}
+                            />
+                        </div>
+                        <div className="p-5">
+                            <div className="flex justify-between items-start mb-2">
+                                <span className="text-[10px] font-bold tracking-widest uppercase text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                                    Step {tourStep + 1} of {TOUR_STEPS.length}
+                                </span>
+                                <button onClick={() => setTourActive(false)} className="text-muted-foreground hover:text-foreground">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+                                </button>
+                            </div>
+                            <h3 className="text-lg font-bold mb-1.5" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                                {TOUR_STEPS[tourStep].title}
+                            </h3>
+                            <p className="text-sm text-muted-foreground leading-relaxed mb-5">
+                                {TOUR_STEPS[tourStep].desc}
+                            </p>
+                            <div className="flex justify-between items-center pt-3 border-t border-border/50">
+                                <button
+                                    onClick={prevTourStep}
+                                    disabled={tourStep === 0}
+                                    className={`text-xs font-medium px-3 py-1.5 rounded-md transition-colors ${tourStep === 0 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-secondary'}`}
+                                >
+                                    Previous
+                                </button>
+                                <button
+                                    onClick={nextTourStep}
+                                    className="text-xs font-bold px-4 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm"
+                                >
+                                    {tourStep === TOUR_STEPS.length - 1 ? 'Finish Tour' : 'Next Step'}
+                                </button>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             {/* ── Sidebar ─────────────────────────────── */}
             <motion.aside
                 initial={{ x: -20, opacity: 0 }}
