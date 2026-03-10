@@ -85,6 +85,23 @@ export function Campaigns() {
     }, [selectedGroup]);
 
     useEffect(() => {
+        const handleTour = (e: any) => {
+            const step = e.detail;
+            if (step === 'messaging') {
+                setView('new');
+                setAnalyticsOpen(false);
+            } else if (step === 'messaging-analytics') {
+                setView('history');
+                openAnalytics(1); // Open demo campaign ID 1
+            } else {
+                setAnalyticsOpen(false);
+            }
+        };
+        window.addEventListener('tour-step', handleTour);
+        return () => window.removeEventListener('tour-step', handleTour);
+    }, []);
+
+    useEffect(() => {
         if (!socket) return;
 
         socket.on('bulk:progress', (data: any) => {

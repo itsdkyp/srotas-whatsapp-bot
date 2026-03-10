@@ -140,6 +140,7 @@ export function AppShell({ children }: AppShellProps) {
             const next = tourStep + 1;
             setTourStep(next);
             setActivePage(TOUR_STEPS[next].page);
+            setTimeout(() => window.dispatchEvent(new CustomEvent('tour-step', { detail: TOUR_STEPS[next].id })), 100);
         } else {
             setTourActive(false);
         }
@@ -150,6 +151,7 @@ export function AppShell({ children }: AppShellProps) {
             const prev = tourStep - 1;
             setTourStep(prev);
             setActivePage(TOUR_STEPS[prev].page);
+            setTimeout(() => window.dispatchEvent(new CustomEvent('tour-step', { detail: TOUR_STEPS[prev].id })), 100);
         }
     };
 
