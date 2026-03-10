@@ -174,7 +174,14 @@ export const updateQuickReply = async (id: string, data: any) => { await mockDel
 export const deleteQuickReply = async (id: string) => { await mockDelay(300); return { success: true }; };
 export const toggleQuickReply = async (id: string, enabled: boolean) => { await mockDelay(200); return { success: true }; };
 
-export const getSchedules = async () => { await mockDelay(300); return []; };
+export const getSchedules = async () => {
+    await mockDelay(300);
+    return [
+        { id: 1, name: 'Daily Greeting', session_name: 'Primary Support', group_name: 'Premium Users', template: 'Hello {{name}}! Have a great day!', frequency: 'daily', time: '09:00', enabled: 1, next_run: new Date(Date.now() + 86400000).toISOString() },
+        { id: 2, name: 'Weekly Newsletter', session_name: 'Sales Team', group_name: 'All Customers', template: 'Check out our latest weekly updates: https://srotas.tech/news', frequency: 'weekly', day_of_week: 1, time: '10:00', enabled: 1, next_run: new Date(Date.now() + 86400000 * 3).toISOString() },
+        { id: 3, name: 'Monthly Invoice Reminder', session_name: 'Primary Support', group_name: 'All Customers', template: 'Reminder: Your invoice will be generated on the 1st.', frequency: 'monthly', day_of_month: 28, time: '14:30', enabled: 0, next_run: new Date(Date.now() + 86400000 * 15).toISOString() }
+    ];
+};
 export const addSchedule = async (data: any) => { await mockDelay(500); return { success: true, id: Date.now() }; };
 export const updateSchedule = async (id: string, data: any) => { await mockDelay(400); return { success: true }; };
 export const deleteSchedule = async (id: string) => { await mockDelay(300); return { success: true }; };
