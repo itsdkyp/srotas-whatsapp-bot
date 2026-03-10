@@ -43,7 +43,7 @@ export const addSession = async (name: string) => {
             newSess.status = 'qr';
             (window as any).triggerMockSocket('session:qr', {
                 sessionId: id,
-                qr: '1@mock_qr_data_string_for_showcase_only=='
+                qr: 'https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=MockSrotasBotSessionQR123'
             });
 
             setTimeout(() => {
