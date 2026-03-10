@@ -135,7 +135,7 @@ export function Campaigns() {
         }
     };
 
-    const startSending = async (launchFn: () => Promise<void>, campaignIdForAnalytics?: number) => {
+    const startSending = async (launchFn: () => Promise<any>, campaignIdForAnalytics?: number) => {
         setSending(true);
         setProgressModalOpen(true);
         setProgressStats({ total: 0, sent: 0, failed: 0 });

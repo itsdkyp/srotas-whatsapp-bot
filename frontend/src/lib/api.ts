@@ -1,93 +1,97 @@
 import axios from 'axios';
 
-// Get base URL for API calls. In electron this is localhost + dynamic port.
-// In Next.js dev it will proxy or just hit the same domain.
-const API_BASE = '/api';
+// MOCK API FOR VERCEL SHOWCASE
+const mockDelay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-const api = axios.create({
-    baseURL: API_BASE,
-});
+const DEMO_SETTINGS = {
+    theme: 'dark',
+    ai_provider: 'gemini',
+    ai_model: 'gemini-3.1-pro-preview',
+    ai_chat_history: false,
+    ai_chat_history_limit: 20,
+    ai_use_system_prompt: true,
+    system_prompt: 'You are an intelligent, professional, and friendly customer support AI assistant for Srotas...',
+    min_delay: '8000',
+    max_delay: '18000',
+    gemini_api_key: '',
+    openai_api_key: ''
+};
 
-export const getLicenseStatus = () => api.get('/license-status').then((r) => r.data);
-export const activateLicense = (key: string) => api.post('/activate', { key }).then((r) => r.data);
+export const getSettings = async () => { await mockDelay(300); return DEMO_SETTINGS; };
+export const updateSettings = async (data: any) => { await mockDelay(500); Object.assign(DEMO_SETTINGS, data); return { success: true }; };
+export const checkForUpdate = async () => { await mockDelay(800); return { currentVersion: '1.2.0', latestVersion: '1.2.0', updateAvailable: false, releaseUrl: 'https://github.com', error: null } as any; };
+export const getVersion = async () => ({ version: '1.2.0' } as any);
+export const getLicenseStatus = async () => { await mockDelay(400); return { activated: true, isLifetime: true, expiryDate: null, daysRemaining: null, keyMasked: 'SROT-****-****-2026' }; };
+export const activateLicense = async (key: string) => { await mockDelay(1000); if (key === 'SROTAS-EASTER-EGG-2026' || key.length > 5) return { success: true }; throw new Error('Invalid key'); };
 
-// Sessions
-export const getSessions = () => api.get('/sessions').then((r) => r.data);
-export const addSession = (name: string) => api.post('/sessions', { name }).then((r) => r.data);
-export const deleteSession = (id: string) => api.delete(`/sessions/${id}`).then((r) => r.data);
-export const restartSession = (id: string) => api.post(`/sessions/${id}/restart`).then((r) => r.data);
-export const relinkSession = (id: string) => api.post(`/sessions/${id}/relink`).then((r) => r.data);
-export const setAutoReply = (id: string, enabled: boolean) => api.put(`/sessions/${id}/auto-reply`, { enabled }).then((r) => r.data);
-export const setAiReplies = (id: string, enabled: boolean) => api.put(`/sessions/${id}/ai-replies`, { enabled }).then((r) => r.data);
-export const setQuickReplies = (id: string, enabled: boolean) => api.put(`/sessions/${id}/quick-replies`, { enabled }).then((r) => r.data);
+export const getSessions = async () => { await mockDelay(300); return [{ id: 'sess_1', name: 'Primary Support', phone: '919876543210', status: 'ready', auto_reply: 1, ai_replies_enabled: 1, quick_replies_enabled: 1 }]; };
+export const addSession = async (name: string) => { await mockDelay(1000); return { sessionId: 'sess_' + Date.now(), name, status: 'initializing' }; };
+export const deleteSession = async (id: string) => { await mockDelay(500); return { success: true }; };
+export const restartSession = async (id: string) => { await mockDelay(1000); return { success: true }; };
+export const relinkSession = async (id: string) => { await mockDelay(1000); return { success: true }; };
+export const setAutoReply = async (id: string, enabled: boolean) => { await mockDelay(200); return { success: true }; };
+export const setAiReplies = async (id: string, enabled: boolean) => { await mockDelay(200); return { success: true }; };
+export const setQuickReplies = async (id: string, enabled: boolean) => { await mockDelay(200); return { success: true }; };
 
-// Groups
-export const getGroups = () => api.get('/groups').then((r) => r.data);
-export const addGroup = (name: string, description?: string) => api.post('/groups', { name, description }).then((r) => r.data);
-export const renameGroup = (id: string, name: string) => api.put(`/groups/${id}`, { name }).then((r) => r.data);
-export const deleteGroup = (id: string) => api.delete(`/groups/${id}`).then((r) => r.data);
+export const getAnalytics = async (range: string = '30days') => {
+    await mockDelay(600);
+    return {
+        stats: { totalMessages: 12450, peopleReached: 3420, mediaSent: 1540, deliveryRate: 98 },
+        messagesOverTime: { labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], sent: [1200, 1500, 1800, 2000, 2500, 2100, 1350], failed: [20, 15, 30, 25, 40, 10, 5] },
+        hourlyPattern: { labels: ['12am', '4am', '8am', '12pm', '4pm', '8pm'], counts: [100, 50, 800, 2400, 3100, 1200] },
+        aiAnalytics: { totalConversations: 850, messagesHandled: 4200, avgResponseTime: 8.5, avgHistoryMessages: 12.4, successRate: 99 },
+        quickReplyAnalytics: { totalTriggers: 1540, uniqueUsers: 620, avgResponseTime: 120, mostUsed: 'pricing' },
+        topCampaigns: [
+            { id: 1, name: 'Diwali Offer', group: 'All Customers', sent: 5000, failed: 20 },
+            { id: 2, name: 'New Feature Announcement', group: 'Premium Users', sent: 1200, failed: 5 }
+        ],
+        sessions: [{ name: 'Primary Support', status: 'ready', phone: '919876543210' }]
+    };
+};
 
-// Contacts
-export const getContacts = (group?: string, search?: string) =>
-    api.get('/contacts', { params: { group, search } }).then((r) => r.data);
-export const getContactGroups = () => api.get('/contacts/groups').then((r) => r.data);
-export const addContact = (data: any) => api.post('/contacts', data).then((r) => r.data);
-export const deleteContact = (id: string) => api.delete(`/contacts/${id}`).then((r) => r.data);
-export const deleteContactGroup = (name: string) => api.delete(`/contacts/group/${name}`).then((r) => r.data);
-export const importContacts = (contacts: any[], group: string) => api.post('/contacts/import', { contacts, group }).then((r) => r.data);
-export const moveToGroup = (contactIds: string[], group: string, copy: boolean) =>
-    api.post('/contacts/move-to-group', { contactIds, group, copy }).then((r) => r.data);
-export const syncWhatsAppContacts = (sessionId: string) => api.get(`/contacts/sync/${sessionId}`).then((r) => r.data);
-export const getWhatsAppGroups = (sessionId: string) => api.get(`/contacts/wa-groups/${sessionId}`).then((r) => r.data);
-export const grabGroupContacts = (sessionId: string, groupId: string) => api.get(`/contacts/grab-group/${sessionId}/${groupId}`).then((r) => r.data);
+export const getGroups = async () => { await mockDelay(300); return [{ id: 1, name: 'All Customers', description: 'Everyone', count: 5000 }, { id: 2, name: 'Premium Users', description: 'VIP tier', count: 1200 }]; };
+export const addGroup = async (name: string, description?: string) => { await mockDelay(500); return { success: true }; };
+export const renameGroup = async (id: string, name: string) => { await mockDelay(300); return { success: true }; };
+export const deleteGroup = async (id: string) => { await mockDelay(300); return { success: true }; };
 
-// Messages/Campaigns
-export const getCampaigns = () => api.get('/campaigns').then((r) => r.data);
-export const getCampaign = (id: string) => api.get(`/campaigns/${id}`).then((r) => r.data);
-export const sendBulkMessages = (data: any) => api.post('/messages/send-bulk', data).then((r) => r.data);
-export const previewMessage = (template: string, contact: any) => api.post('/messages/preview', { template, contact }).then((r) => r.data);
-export const deleteCampaign = (id: string) => api.delete(`/campaigns/${id}`).then((r) => r.data);
-export const retryCampaign = (id: string, sessionId: string) => api.post(`/campaigns/${id}/retry`, { sessionId }).then((r) => r.data);
-export const restartCampaign = (id: string, sessionId: string) => api.post(`/campaigns/${id}/restart`, { sessionId }).then((r) => r.data);
+export const getContacts = async (group?: string, search?: string) => { await mockDelay(400); return [{ id: 1, phone: '919876543210', name: 'John Doe', company: 'Acme Corp', group_name: 'Premium Users', custom_fields: '{}' }]; };
+export const getContactGroups = async () => { await mockDelay(200); return ['default', 'All Customers', 'Premium Users']; };
+export const addContact = async (data: any) => { await mockDelay(400); return { success: true }; };
+export const deleteContact = async (id: string) => { await mockDelay(300); return { success: true }; };
+export const deleteContactGroup = async (name: string) => { await mockDelay(500); return { success: true }; };
+export const importContacts = async (contacts: any[], group: string) => { await mockDelay(800); return { success: true, count: contacts.length }; };
+export const moveToGroup = async (contactIds: string[], group: string, copy: boolean) => { await mockDelay(500); return { success: true, count: contactIds.length }; };
+export const syncWhatsAppContacts = async (sessionId: string) => { await mockDelay(2000); return [{ phone: '919000000001', name: 'WA Contact 1', isMyContact: true }]; };
+export const getWhatsAppGroups = async (sessionId: string) => { await mockDelay(1000); return [{ id: 'group1@g.us', name: 'Family Group' }]; };
+export const grabGroupContacts = async (sessionId: string, groupId: string) => { await mockDelay(1500); return [{ phone: '919000000003', name: 'Group Member 1', isMyContact: false }]; };
 
-// Templates
-export const getTemplates = () => api.get('/templates').then((r) => r.data);
-export const addTemplate = (data: any) => api.post('/templates', data).then((r) => r.data);
-export const updateTemplate = (id: string, data: any) => api.put(`/templates/${id}`, data).then((r) => r.data);
-export const deleteTemplate = (id: string) => api.delete(`/templates/${id}`).then((r) => r.data);
+export const getCampaigns = async () => { await mockDelay(400); return [{ id: 1, name: 'Diwali Offer', session_name: 'Primary Support', group_name: 'All Customers', status: 'completed', sent: 5000, failed: 20 }]; };
+export const getCampaign = async (id: string) => { await mockDelay(300); return { id: 1, name: 'Diwali Offer', session_name: 'Primary Support', group_name: 'All Customers', status: 'completed', sent: 5000, failed: 20, template: 'Hello {{name}}', messages: [], errorBreakdown: [] }; };
+export const sendBulkMessages = async (data: any) => { await mockDelay(1000); return { status: 'started', total: 100 }; };
+export const previewMessage = async (template: string, contact: any) => { await mockDelay(200); return { rendered: template.replace(/{{name}}/g, 'Demo Name') }; };
+export const deleteCampaign = async (id: string) => { await mockDelay(300); return { success: true }; };
+export const retryCampaign = async (id: string, sessionId: string) => { await mockDelay(800); return { status: 'started', total: 20 }; };
+export const restartCampaign = async (id: string, sessionId: string) => { await mockDelay(800); return { status: 'started', total: 5000 }; };
 
-// Quick Replies
-export const getQuickReplies = () => api.get('/quick-replies').then((r) => r.data);
-export const addQuickReply = (data: any) => api.post('/quick-replies', data).then((r) => r.data);
-export const updateQuickReply = (id: string, data: any) => api.put(`/quick-replies/${id}`, data).then((r) => r.data);
-export const deleteQuickReply = (id: string) => api.delete(`/quick-replies/${id}`).then((r) => r.data);
-export const toggleQuickReply = (id: string, enabled: boolean) => api.put(`/quick-replies/${id}/toggle`, { enabled }).then((r) => r.data);
+export const getTemplates = async () => { await mockDelay(300); return [{ id: 1, name: 'Welcome Message', content: 'Hello {{name}}, welcome to Srotas!' }]; };
+export const addTemplate = async (data: any) => { await mockDelay(500); return { success: true, id: Date.now() }; };
+export const updateTemplate = async (id: string, data: any) => { await mockDelay(400); return { success: true }; };
+export const deleteTemplate = async (id: string) => { await mockDelay(300); return { success: true }; };
 
-// Schedules
-export const getSchedules = () => api.get('/schedules').then((r) => r.data);
-export const addSchedule = (data: any) => api.post('/schedules', data).then((r) => r.data);
-export const updateSchedule = (id: string, data: any) => api.put(`/schedules/${id}`, data).then((r) => r.data);
-export const deleteSchedule = (id: string) => api.delete(`/schedules/${id}`).then((r) => r.data);
-export const toggleSchedule = (id: string, enabled: boolean) => api.put(`/schedules/${id}/toggle`, { enabled }).then((r) => r.data);
+export const getQuickReplies = async () => { await mockDelay(300); return [{ id: 1, trigger_key: 'pricing', label: 'Pricing Info', response: 'Our pricing starts at $99/mo.', enabled: 1 }]; };
+export const addQuickReply = async (data: any) => { await mockDelay(500); return { success: true }; };
+export const updateQuickReply = async (id: string, data: any) => { await mockDelay(400); return { success: true }; };
+export const deleteQuickReply = async (id: string) => { await mockDelay(300); return { success: true }; };
+export const toggleQuickReply = async (id: string, enabled: boolean) => { await mockDelay(200); return { success: true }; };
 
-// Analytics
-export const getAnalytics = (range: string = '30days') => api.get(`/analytics?range=${range}`).then((r) => r.data);
+export const getSchedules = async () => { await mockDelay(300); return []; };
+export const addSchedule = async (data: any) => { await mockDelay(500); return { success: true, id: Date.now() }; };
+export const updateSchedule = async (id: string, data: any) => { await mockDelay(400); return { success: true }; };
+export const deleteSchedule = async (id: string) => { await mockDelay(300); return { success: true }; };
+export const toggleSchedule = async (id: string, enabled: boolean) => { await mockDelay(200); return { success: true }; };
 
-// Settings
-export const getSettings = () => api.get('/settings').then((r) => r.data);
-export const updateSettings = (data: any) => api.put('/settings', data).then((r) => r.data);
-export const checkForUpdate = () => api.get('/check-update').then((r) => r.data);
-export const getVersion = () => api.get('/version').then((r) => r.data);
+export const uploadMedia = async (formData: FormData) => { await mockDelay(1500); return { success: true, files: [{ path: '/mock/path.jpg', filename: 'image.jpg' }] } as any; };
+export const uploadContactsCsv = async (formData: FormData) => { await mockDelay(1000); return { headers: ['phone', 'name'], rows: [['919999999999', 'Demo User']], uploadId: 'demo' } as any; };
 
-// Admin
-export const generateAdminKey = (days: number) => api.post('/admin/generate-key', { days }).then((r) => r.data);
-export const getAdminHistory = () => api.get('/admin/history').then((r) => r.data);
-
-// Upload
-export const uploadMedia = (formData: FormData) => api.post('/media/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-}).then(r => r.data);
-
-export const uploadContactsCsv = (formData: FormData) => api.post('/contacts/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-}).then(r => r.data);
+export const generateAdminKey = async (days: number) => { await mockDelay(800); return { key: 'DEMO-KEY-1234', expiryDate: new Date(Date.now() + days * 86400000).toISOString(), days }; };
+export const getAdminHistory = async () => { await mockDelay(400); return [{ key: 'DEMO-KEY-1234', days: 30, expiryDate: new Date().toISOString(), generatedAt: new Date().toISOString() }]; };
