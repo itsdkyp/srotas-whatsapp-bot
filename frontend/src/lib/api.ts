@@ -133,13 +133,39 @@ export const getAnalytics = async (range: string = '30days') => {
     };
 };
 
-export const getGroups = async () => { await mockDelay(300); return [{ id: 1, name: 'All Customers', description: 'Everyone', count: 5000 }, { id: 2, name: 'Premium Users', description: 'VIP tier', count: 1200 }]; };
+export const getGroups = async () => {
+    await mockDelay(300);
+    return [
+        { id: 1, name: 'All Customers', description: 'Everyone in the database', count: 5000 },
+        { id: 2, name: 'Premium Users', description: 'VIP tier subscriptions', count: 1200 },
+        { id: 3, name: 'India Region', description: 'Customers from India', count: 2450 },
+        { id: 4, name: 'B2B Clients', description: 'Enterprise partners', count: 340 }
+    ];
+};
 export const addGroup = async (name: string, description?: string) => { await mockDelay(500); return { success: true }; };
 export const renameGroup = async (id: string, name: string) => { await mockDelay(300); return { success: true }; };
 export const deleteGroup = async (id: string) => { await mockDelay(300); return { success: true }; };
 
-export const getContacts = async (group?: string, search?: string) => { await mockDelay(400); return [{ id: 1, phone: '919876543210', name: 'John Doe', company: 'Acme Corp', group_name: 'Premium Users', custom_fields: '{}' }]; };
-export const getContactGroups = async () => { await mockDelay(200); return ['default', 'All Customers', 'Premium Users']; };
+const MOCK_CONTACTS = [
+    { id: 1, phone: '919876543210', name: 'Rajesh Kumar', company: 'Infosys', group_name: 'India Region', custom_fields: '{"plan": "enterprise"}', created_at: new Date().toISOString() },
+    { id: 2, phone: '918765432109', name: 'Priya Sharma', company: 'TCS', group_name: 'India Region', custom_fields: '{}', created_at: new Date().toISOString() },
+    { id: 3, phone: '14155552671', name: 'Sarah Connor', company: 'TechNova', group_name: 'Premium Users', custom_fields: '{"status": "active"}', created_at: new Date().toISOString() },
+    { id: 4, phone: '447700900077', name: 'James Smith', company: 'Global Solutions UK', group_name: 'B2B Clients', custom_fields: '{}', created_at: new Date().toISOString() },
+    { id: 5, phone: '61412345678', name: 'Oliver Twist', company: 'Aussie Imports', group_name: 'All Customers', custom_fields: '{}', created_at: new Date().toISOString() },
+    { id: 6, phone: '919988776655', name: 'Ananya Gupta', company: 'Wipro', group_name: 'India Region', custom_fields: '{}', created_at: new Date().toISOString() },
+    { id: 7, phone: '12125558901', name: 'Michael Chang', company: 'StartUp Inc', group_name: 'All Customers', custom_fields: '{"tier": "free"}', created_at: new Date().toISOString() },
+    { id: 8, phone: '491712345678', name: 'Klaus Müller', company: 'Berlin Tech', group_name: 'B2B Clients', custom_fields: '{}', created_at: new Date().toISOString() },
+    { id: 9, phone: '919122334455', name: 'Vikram Singh', company: 'Reliance', group_name: 'Premium Users', custom_fields: '{}', created_at: new Date().toISOString() }
+];
+
+export const getContacts = async (group?: string, search?: string) => {
+    await mockDelay(400);
+    let res = MOCK_CONTACTS;
+    if (group && group !== 'All' && group !== 'default') res = res.filter(c => c.group_name === group);
+    if (search) res = res.filter(c => c.name.toLowerCase().includes(search.toLowerCase()) || c.phone.includes(search) || c.company.toLowerCase().includes(search.toLowerCase()));
+    return res;
+};
+export const getContactGroups = async () => { await mockDelay(200); return ['default', 'All Customers', 'Premium Users', 'India Region', 'B2B Clients']; };
 export const addContact = async (data: any) => { await mockDelay(400); return { success: true }; };
 export const deleteContact = async (id: string) => { await mockDelay(300); return { success: true }; };
 export const deleteContactGroup = async (name: string) => { await mockDelay(500); return { success: true }; };
