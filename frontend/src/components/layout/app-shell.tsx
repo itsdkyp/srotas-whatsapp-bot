@@ -111,7 +111,7 @@ export function AppShell({ children }: AppShellProps) {
     const activeLabel = allNavItems.find(n => n.id === activePage)?.label || 'Dashboard';
 
     return (
-        <div className="flex h-screen bg-background text-foreground overflow-hidden">
+        <div className="flex h-full bg-background text-foreground overflow-hidden">
             {/* ── Sidebar ─────────────────────────────── */}
             <motion.aside
                 initial={{ x: -20, opacity: 0 }}
@@ -274,7 +274,7 @@ export function AppShell({ children }: AppShellProps) {
                         onClick={() => setActivePage('updates')}
                         className="text-xs px-3 py-1 rounded-full badge-blue font-medium cursor-pointer hover:opacity-80 transition-opacity"
                         title="Check for updates"
-                    >v1.1.8</button>
+                    >v1.2.0</button>
                 </div>
 
                 {/* Page with transition */}
