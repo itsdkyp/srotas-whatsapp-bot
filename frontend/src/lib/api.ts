@@ -175,19 +175,45 @@ export const syncWhatsAppContacts = async (sessionId: string) => { await mockDel
 export const getWhatsAppGroups = async (sessionId: string) => { await mockDelay(1000); return [{ id: 'group1@g.us', name: 'Family Group' }]; };
 export const grabGroupContacts = async (sessionId: string, groupId: string) => { await mockDelay(1500); return [{ phone: '919000000003', name: 'Group Member 1', isMyContact: false }]; };
 
+let MOCK_CAMPAIGNS: any[] = [
+    { id: 5, name: 'Product Launch', session_name: 'Sales Team', group_name: 'All Customers', status: 'completed', total: 4585, sent: 4500, failed: 85, started_at: new Date(Date.now() - 86400000 * 15).toISOString(), messages: [] },
+    { id: 4, name: 'Flash Sale Reminder', session_name: 'Primary Support', group_name: 'VIP tier', status: 'completed', total: 201, sent: 200, failed: 1, started_at: new Date(Date.now() - 86400000 * 2).toISOString(), messages: [] },
+    { id: 3, name: 'Weekend Newsletter', session_name: 'Primary Support', group_name: 'All Customers', status: 'completed', total: 825, sent: 800, failed: 25, started_at: new Date(Date.now() - 86400000 * 5).toISOString(), messages: [] },
+    { id: 2, name: 'New Feature Announcement', session_name: 'Primary Support', group_name: 'Premium Users', status: 'completed', total: 1205, sent: 1200, failed: 5, started_at: new Date(Date.now() - 86400000 * 10).toISOString(), messages: [] },
+    { id: 1, name: 'Diwali Offer', session_name: 'Sales Team', group_name: 'All Customers', status: 'completed', total: 5020, sent: 5000, failed: 20, started_at: new Date(Date.now() - 86400000 * 20).toISOString(), messages: [] }
+];
+
 export const getCampaigns = async () => {
-    await mockDelay(400); return [
-        { id: 5, name: 'Product Launch', session_name: 'Sales Team', group_name: 'All Customers', status: 'completed', sent: 4500, failed: 85, started_at: new Date(Date.now() - 86400000 * 15).toISOString() },
-        { id: 4, name: 'Flash Sale Reminder', session_name: 'Primary Support', group_name: 'VIP tier', status: 'completed', sent: 200, failed: 1, started_at: new Date(Date.now() - 86400000 * 2).toISOString() },
-        { id: 3, name: 'Weekend Newsletter', session_name: 'Primary Support', group_name: 'All Customers', status: 'completed', sent: 800, failed: 25, started_at: new Date(Date.now() - 86400000 * 5).toISOString() },
-        { id: 2, name: 'New Feature Announcement', session_name: 'Primary Support', group_name: 'Premium Users', status: 'completed', sent: 1200, failed: 5, started_at: new Date(Date.now() - 86400000 * 10).toISOString() },
-        { id: 1, name: 'Diwali Offer', session_name: 'Sales Team', group_name: 'All Customers', status: 'completed', sent: 5000, failed: 20, started_at: new Date(Date.now() - 86400000 * 20).toISOString() }
-    ];
+    await mockDelay(400);
+    return MOCK_CAMPAIGNS;
 };
-export const getCampaign = async (id: string) => { await mockDelay(300); return { id: parseInt(id), name: 'Demo Campaign', session_name: 'Primary Support', group_name: 'All Customers', status: 'completed', sent: 5000, failed: 20, template: 'Hello {{name}}', messages: [], errorBreakdown: [{ error: "Invalid number", count: 15 }, { error: "Timeout", count: 5 }], started_at: new Date().toISOString() }; };
+
+export const getCampaign = async (id: string) => {
+    await mockDelay(300);
+    const c = MOCK_CAMPAIGNS.find(x => x.id === parseInt(id));
+    if (!c) return { id: parseInt(id), name: 'Demo Campaign', session_name: 'Primary Support', group_name: 'All Customers', status: 'completed', total: 5020, sent: 5000, failed: 20, template: 'Hello {{name}}', messages: [], errorBreakdown: [{ error: "Invalid number", count: 15 }, { error: "Timeout", count: 5 }], started_at: new Date().toISOString() };
+
+    const errorBreakdown = c.failed > 0 ? [{ error: "Simulated Timeout/Invalid Number", count: c.failed }] : [];
+    return { ...c, template: 'Hello {{name}}, this is a mock campaign preview.', errorBreakdown };
+};
+
 export const sendBulkMessages = async (data: any) => {
     await mockDelay(1000);
-    const total = 50; // Mock total contacts
+    const total = 42; // Mock total contacts
+
+    const newCampaign = {
+        id: Date.now(),
+        name: data.name || 'Quick Campaign',
+        session_name: MOCK_SESSIONS.find(s => s.id === data.sessionId)?.name || 'Primary Support',
+        group_name: data.group || 'Custom Group',
+        status: 'running',
+        total: total,
+        sent: 0,
+        failed: 0,
+        started_at: new Date().toISOString(),
+        messages: [] as any[]
+    };
+    MOCK_CAMPAIGNS.unshift(newCampaign);
 
     // Simulate background sending progress
     setTimeout(() => {
@@ -197,18 +223,32 @@ export const sendBulkMessages = async (data: any) => {
             const isFailure = Math.random() < 0.1; // 10% failure rate
             if (isFailure) failed++; else sent++;
 
+            const phone = '91987654' + Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+
+            newCampaign.sent = sent;
+            newCampaign.failed = failed;
+            newCampaign.messages.unshift({
+                id: Date.now() + Math.random(),
+                contact_phone: phone,
+                contact_name: 'Demo Contact',
+                status: isFailure ? 'failed' : 'sent',
+                error_message: isFailure ? 'Invalid Number Simulation' : null,
+                created_at: new Date().toISOString()
+            });
+
             if (typeof window !== 'undefined' && (window as any).triggerMockSocket) {
                 (window as any).triggerMockSocket('bulk:progress', {
                     total,
                     sent,
                     failed,
-                    lastPhone: '91987654' + Math.floor(Math.random() * 1000).toString().padStart(3, '0'),
+                    lastPhone: phone,
                     lastStatus: isFailure ? 'failed' : 'sent'
                 });
             }
 
             if (sent + failed >= total) {
                 clearInterval(interval);
+                newCampaign.status = 'completed';
                 if (typeof window !== 'undefined' && (window as any).triggerMockSocket) {
                     (window as any).triggerMockSocket('bulk:complete', {
                         total, sent, failed
@@ -221,7 +261,11 @@ export const sendBulkMessages = async (data: any) => {
     return { status: 'started', total };
 };
 export const previewMessage = async (template: string, contact: any) => { await mockDelay(200); return { rendered: template.replace(/{{name}}/g, 'Demo Name') }; };
-export const deleteCampaign = async (id: string) => { await mockDelay(300); return { success: true }; };
+export const deleteCampaign = async (id: string) => {
+    await mockDelay(300);
+    MOCK_CAMPAIGNS = MOCK_CAMPAIGNS.filter(c => c.id !== parseInt(id));
+    return { success: true };
+};
 export const retryCampaign = async (id: string, sessionId: string) => { await mockDelay(800); return { status: 'started', total: 20 }; };
 export const restartCampaign = async (id: string, sessionId: string) => { await mockDelay(800); return { status: 'started', total: 5000 }; };
 
