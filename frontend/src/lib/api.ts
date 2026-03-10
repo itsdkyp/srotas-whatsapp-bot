@@ -24,21 +24,33 @@ export const getVersion = async () => ({ version: '1.2.0' } as any);
 export const getLicenseStatus = async () => { await mockDelay(400); return { activated: true, isLifetime: false, expiryDate: '2026-12-31', daysRemaining: 365, keyMasked: 'DEMO-****-****-2026' }; };
 export const activateLicense = async (key: string) => { await mockDelay(1000); if (key === 'SROTAS-EASTER-EGG-2026' || key.length > 5) return { success: true }; throw new Error('Invalid key'); };
 
-export const getSessions = async () => { await mockDelay(300); return [{ id: 'sess_1', name: 'Primary Support', phone: '919876543210', status: 'ready', auto_reply: 1, ai_replies_enabled: 1, quick_replies_enabled: 1 }]; };
+let MOCK_SESSIONS = [
+    { id: 'sess_1', name: 'Primary Support', phone: '919876543210', status: 'ready', auto_reply: 1, ai_replies_enabled: 1, quick_replies_enabled: 1 }
+];
+
+export const getSessions = async () => { await mockDelay(300); return [...MOCK_SESSIONS]; };
+
 export const addSession = async (name: string) => {
     await mockDelay(1000);
     const id = 'sess_' + Date.now();
 
+    // Add it to local array so getSessions returns it
+    const newSess = { id, name, status: 'initializing', phone: '' };
+    MOCK_SESSIONS.push(newSess as any);
+
     setTimeout(() => {
         if (typeof window !== 'undefined' && (window as any).triggerMockSocket) {
+            newSess.status = 'qr';
             (window as any).triggerMockSocket('session:qr', {
-                id,
+                sessionId: id,
                 qr: '1@mock_qr_data_string_for_showcase_only=='
             });
 
             setTimeout(() => {
+                newSess.status = 'ready';
+                newSess.phone = '919876000000';
                 (window as any).triggerMockSocket('session:ready', {
-                    id,
+                    sessionId: id,
                     name,
                     phone: '919876000000',
                     status: 'ready'
@@ -49,7 +61,12 @@ export const addSession = async (name: string) => {
 
     return { sessionId: id, name, status: 'initializing' };
 };
-export const deleteSession = async (id: string) => { await mockDelay(500); return { success: true }; };
+
+export const deleteSession = async (id: string) => {
+    await mockDelay(500);
+    MOCK_SESSIONS = MOCK_SESSIONS.filter(s => s.id !== id);
+    return { success: true };
+};
 export const restartSession = async (id: string) => { await mockDelay(1000); return { success: true }; };
 export const relinkSession = async (id: string) => { await mockDelay(1000); return { success: true }; };
 export const setAutoReply = async (id: string, enabled: boolean) => { await mockDelay(200); return { success: true }; };
