@@ -35,17 +35,61 @@ export const setQuickReplies = async (id: string, enabled: boolean) => { await m
 
 export const getAnalytics = async (range: string = '30days') => {
     await mockDelay(600);
-    return {
-        stats: { totalMessages: 12450, peopleReached: 3420, mediaSent: 1540, deliveryRate: 98 },
-        messagesOverTime: { labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], sent: [1200, 1500, 1800, 2000, 2500, 2100, 1350], failed: [20, 15, 30, 25, 40, 10, 5] },
-        hourlyPattern: { labels: ['12am', '4am', '8am', '12pm', '4pm', '8pm'], counts: [100, 50, 800, 2400, 3100, 1200] },
-        aiAnalytics: { totalConversations: 850, messagesHandled: 4200, avgResponseTime: 8.5, avgHistoryMessages: 12.4, successRate: 99 },
-        quickReplyAnalytics: { totalTriggers: 1540, uniqueUsers: 620, avgResponseTime: 120, mostUsed: 'pricing' },
-        topCampaigns: [
+
+    let stats, messagesOverTime, hourlyPattern, aiAnalytics, quickReplyAnalytics, topCampaigns;
+
+    if (range === 'today') {
+        stats = { totalMessages: 420, peopleReached: 150, mediaSent: 45, deliveryRate: 99 };
+        messagesOverTime = { labels: ['8am', '10am', '12pm', '2pm', '4pm', '6pm', '8pm'], sent: [20, 45, 120, 80, 60, 45, 50], failed: [0, 1, 2, 0, 1, 0, 0] };
+        hourlyPattern = { labels: ['12am', '4am', '8am', '12pm', '4pm', '8pm'], counts: [5, 2, 80, 150, 90, 60] };
+        aiAnalytics = { totalConversations: 45, messagesHandled: 120, avgResponseTime: 6.2, avgHistoryMessages: 5.1, successRate: 100 };
+        quickReplyAnalytics = { totalTriggers: 85, uniqueUsers: 40, avgResponseTime: 105, mostUsed: 'hello' };
+        topCampaigns = [
+            { id: 4, name: 'Flash Sale Reminder', group: 'VIP tier', sent: 200, failed: 1 }
+        ];
+    } else if (range === 'yesterday') {
+        stats = { totalMessages: 850, peopleReached: 320, mediaSent: 110, deliveryRate: 97 };
+        messagesOverTime = { labels: ['8am', '10am', '12pm', '2pm', '4pm', '6pm', '8pm'], sent: [40, 90, 200, 150, 120, 100, 150], failed: [2, 5, 10, 4, 3, 1, 0] };
+        hourlyPattern = { labels: ['12am', '4am', '8am', '12pm', '4pm', '8pm'], counts: [10, 5, 120, 300, 210, 180] };
+        aiAnalytics = { totalConversations: 92, messagesHandled: 310, avgResponseTime: 7.1, avgHistoryMessages: 8.2, successRate: 98 };
+        quickReplyAnalytics = { totalTriggers: 140, uniqueUsers: 85, avgResponseTime: 115, mostUsed: 'pricing' };
+        topCampaigns = [
+            { id: 3, name: 'Weekend Newsletter', group: 'All Customers', sent: 800, failed: 25 }
+        ];
+    } else if (range === '7days') {
+        stats = { totalMessages: 5420, peopleReached: 1850, mediaSent: 640, deliveryRate: 98 };
+        messagesOverTime = { labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], sent: [600, 850, 700, 950, 1200, 700, 420], failed: [10, 15, 8, 12, 20, 5, 2] };
+        hourlyPattern = { labels: ['12am', '4am', '8am', '12pm', '4pm', '8pm'], counts: [50, 20, 400, 1200, 1500, 600] };
+        aiAnalytics = { totalConversations: 420, messagesHandled: 1850, avgResponseTime: 7.8, avgHistoryMessages: 10.5, successRate: 99 };
+        quickReplyAnalytics = { totalTriggers: 650, uniqueUsers: 310, avgResponseTime: 118, mostUsed: 'demo' };
+        topCampaigns = [
+            { id: 2, name: 'New Feature Announcement', group: 'Premium Users', sent: 1200, failed: 5 },
+            { id: 3, name: 'Weekend Newsletter', group: 'All Customers', sent: 800, failed: 25 }
+        ];
+    } else {
+        // 30 days or all
+        stats = { totalMessages: 18450, peopleReached: 5420, mediaSent: 2540, deliveryRate: 98 };
+        messagesOverTime = { labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'], sent: [4200, 3800, 5100, 5350], failed: [80, 65, 90, 75] };
+        hourlyPattern = { labels: ['12am', '4am', '8am', '12pm', '4pm', '8pm'], counts: [250, 120, 1800, 5400, 6100, 2400] };
+        aiAnalytics = { totalConversations: 1850, messagesHandled: 8200, avgResponseTime: 8.5, avgHistoryMessages: 12.4, successRate: 99 };
+        quickReplyAnalytics = { totalTriggers: 2540, uniqueUsers: 1120, avgResponseTime: 120, mostUsed: 'pricing' };
+        topCampaigns = [
             { id: 1, name: 'Diwali Offer', group: 'All Customers', sent: 5000, failed: 20 },
-            { id: 2, name: 'New Feature Announcement', group: 'Premium Users', sent: 1200, failed: 5 }
-        ],
-        sessions: [{ name: 'Primary Support', status: 'ready', phone: '919876543210' }]
+            { id: 5, name: 'Product Launch', group: 'All Customers', sent: 4500, failed: 85 },
+            { id: 2, name: 'New Feature Announcement', group: 'Premium Users', sent: 1200, failed: 5 },
+            { id: 3, name: 'Weekend Newsletter', group: 'All Customers', sent: 800, failed: 25 },
+            { id: 4, name: 'Flash Sale Reminder', group: 'VIP tier', sent: 200, failed: 1 }
+        ];
+    }
+
+    return {
+        stats,
+        messagesOverTime,
+        hourlyPattern,
+        aiAnalytics,
+        quickReplyAnalytics,
+        topCampaigns,
+        sessions: [{ name: 'Primary Support', status: 'ready', phone: '919876543210' }, { name: 'Sales Team', status: 'ready', phone: '919876543211' }]
     };
 };
 
@@ -65,20 +109,43 @@ export const syncWhatsAppContacts = async (sessionId: string) => { await mockDel
 export const getWhatsAppGroups = async (sessionId: string) => { await mockDelay(1000); return [{ id: 'group1@g.us', name: 'Family Group' }]; };
 export const grabGroupContacts = async (sessionId: string, groupId: string) => { await mockDelay(1500); return [{ phone: '919000000003', name: 'Group Member 1', isMyContact: false }]; };
 
-export const getCampaigns = async () => { await mockDelay(400); return [{ id: 1, name: 'Diwali Offer', session_name: 'Primary Support', group_name: 'All Customers', status: 'completed', sent: 5000, failed: 20 }]; };
-export const getCampaign = async (id: string) => { await mockDelay(300); return { id: 1, name: 'Diwali Offer', session_name: 'Primary Support', group_name: 'All Customers', status: 'completed', sent: 5000, failed: 20, template: 'Hello {{name}}', messages: [], errorBreakdown: [] }; };
+export const getCampaigns = async () => {
+    await mockDelay(400); return [
+        { id: 5, name: 'Product Launch', session_name: 'Sales Team', group_name: 'All Customers', status: 'completed', sent: 4500, failed: 85, started_at: new Date(Date.now() - 86400000 * 15).toISOString() },
+        { id: 4, name: 'Flash Sale Reminder', session_name: 'Primary Support', group_name: 'VIP tier', status: 'completed', sent: 200, failed: 1, started_at: new Date(Date.now() - 86400000 * 2).toISOString() },
+        { id: 3, name: 'Weekend Newsletter', session_name: 'Primary Support', group_name: 'All Customers', status: 'completed', sent: 800, failed: 25, started_at: new Date(Date.now() - 86400000 * 5).toISOString() },
+        { id: 2, name: 'New Feature Announcement', session_name: 'Primary Support', group_name: 'Premium Users', status: 'completed', sent: 1200, failed: 5, started_at: new Date(Date.now() - 86400000 * 10).toISOString() },
+        { id: 1, name: 'Diwali Offer', session_name: 'Sales Team', group_name: 'All Customers', status: 'completed', sent: 5000, failed: 20, started_at: new Date(Date.now() - 86400000 * 20).toISOString() }
+    ];
+};
+export const getCampaign = async (id: string) => { await mockDelay(300); return { id: parseInt(id), name: 'Demo Campaign', session_name: 'Primary Support', group_name: 'All Customers', status: 'completed', sent: 5000, failed: 20, template: 'Hello {{name}}', messages: [], errorBreakdown: [{ error: "Invalid number", count: 15 }, { error: "Timeout", count: 5 }], started_at: new Date().toISOString() }; };
 export const sendBulkMessages = async (data: any) => { await mockDelay(1000); return { status: 'started', total: 100 }; };
 export const previewMessage = async (template: string, contact: any) => { await mockDelay(200); return { rendered: template.replace(/{{name}}/g, 'Demo Name') }; };
 export const deleteCampaign = async (id: string) => { await mockDelay(300); return { success: true }; };
 export const retryCampaign = async (id: string, sessionId: string) => { await mockDelay(800); return { status: 'started', total: 20 }; };
 export const restartCampaign = async (id: string, sessionId: string) => { await mockDelay(800); return { status: 'started', total: 5000 }; };
 
-export const getTemplates = async () => { await mockDelay(300); return [{ id: 1, name: 'Welcome Message', content: 'Hello {{name}}, welcome to Srotas!' }]; };
+export const getTemplates = async () => {
+    await mockDelay(300); return [
+        { id: 1, name: 'Welcome Message', content: 'Hello {{name}}, welcome to Srotas! How can we help you today?' },
+        { id: 2, name: 'Meeting Reminder', content: 'Hi {{name}}, just a reminder about our meeting tomorrow at 10 AM. Reply YES to confirm.' },
+        { id: 3, name: 'Payment Link', content: 'Dear {{name}}, your invoice is due. Please use this link to pay: https://srotas.tech/pay/{{phone}}' },
+        { id: 4, name: 'Support Ticket Closed', content: 'Your ticket #T-{{phone}} has been resolved. Thank you for choosing Srotas!' }
+    ];
+};
 export const addTemplate = async (data: any) => { await mockDelay(500); return { success: true, id: Date.now() }; };
 export const updateTemplate = async (id: string, data: any) => { await mockDelay(400); return { success: true }; };
 export const deleteTemplate = async (id: string) => { await mockDelay(300); return { success: true }; };
 
-export const getQuickReplies = async () => { await mockDelay(300); return [{ id: 1, trigger_key: 'pricing', label: 'Pricing Info', response: 'Our pricing starts at $99/mo.', enabled: 1 }]; };
+export const getQuickReplies = async () => {
+    await mockDelay(300); return [
+        { id: 1, trigger_key: 'pricing', label: 'Pricing Info', response: 'Our pricing starts at ₹999/month. Reply PLANS for full details.', enabled: 1 },
+        { id: 2, trigger_key: 'demo', label: 'Book Demo', response: 'Book your free demo at https://srotas.tech/demo — takes 2 minutes!', enabled: 1 },
+        { id: 3, trigger_key: 'support', label: 'Support Info', response: 'Our support team is available Mon–Sat 9am–6pm IST. Email: hi@srotas.tech', enabled: 1 },
+        { id: 4, trigger_key: 'hello', label: 'Greeting', response: 'Hi there! Welcome to Srotas Bot. How can we orchestrate your digital flow today?', enabled: 1 },
+        { id: 5, trigger_key: 'address', label: 'Office Location', response: 'We are located at 123 Tech Park, Bangalore, India.', enabled: 0 }
+    ];
+};
 export const addQuickReply = async (data: any) => { await mockDelay(500); return { success: true }; };
 export const updateQuickReply = async (id: string, data: any) => { await mockDelay(400); return { success: true }; };
 export const deleteQuickReply = async (id: string) => { await mockDelay(300); return { success: true }; };
