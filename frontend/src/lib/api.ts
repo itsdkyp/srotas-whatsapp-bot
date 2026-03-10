@@ -25,7 +25,30 @@ export const getLicenseStatus = async () => { await mockDelay(400); return { act
 export const activateLicense = async (key: string) => { await mockDelay(1000); if (key === 'SROTAS-EASTER-EGG-2026' || key.length > 5) return { success: true }; throw new Error('Invalid key'); };
 
 export const getSessions = async () => { await mockDelay(300); return [{ id: 'sess_1', name: 'Primary Support', phone: '919876543210', status: 'ready', auto_reply: 1, ai_replies_enabled: 1, quick_replies_enabled: 1 }]; };
-export const addSession = async (name: string) => { await mockDelay(1000); return { sessionId: 'sess_' + Date.now(), name, status: 'initializing' }; };
+export const addSession = async (name: string) => {
+    await mockDelay(1000);
+    const id = 'sess_' + Date.now();
+
+    setTimeout(() => {
+        if (typeof window !== 'undefined' && (window as any).triggerMockSocket) {
+            (window as any).triggerMockSocket('session:qr', {
+                id,
+                qr: '1@mock_qr_data_string_for_showcase_only=='
+            });
+
+            setTimeout(() => {
+                (window as any).triggerMockSocket('session:ready', {
+                    id,
+                    name,
+                    phone: '919876000000',
+                    status: 'ready'
+                });
+            }, 5000);
+        }
+    }, 1500);
+
+    return { sessionId: id, name, status: 'initializing' };
+};
 export const deleteSession = async (id: string) => { await mockDelay(500); return { success: true }; };
 export const restartSession = async (id: string) => { await mockDelay(1000); return { success: true }; };
 export const relinkSession = async (id: string) => { await mockDelay(1000); return { success: true }; };

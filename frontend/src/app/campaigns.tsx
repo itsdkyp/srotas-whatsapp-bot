@@ -87,13 +87,13 @@ export function Campaigns() {
     useEffect(() => {
         if (!socket) return;
 
-        socket.on('bulk:progress', (data) => {
+        socket.on('bulk:progress', (data: any) => {
             setProgressStats({ total: data.total, sent: data.sent, failed: data.failed });
             const logMsg = `Sent to ${data.lastPhone} (${data.lastStatus})`;
             setProgressLogs(prev => [`[${new Date().toLocaleTimeString()}] ${logMsg}`, ...prev].slice(0, 50));
         });
 
-        socket.on('bulk:complete', (data) => {
+        socket.on('bulk:complete', (data: any) => {
             setSending(false);
             toast.success(`Campaign completed! Sent: ${data.sent}, Failed: ${data.failed}`);
             setLiveAnalyticsCampaignId(null);
@@ -104,7 +104,7 @@ export function Campaigns() {
             }
         });
 
-        socket.on('bulk:error', (data) => {
+        socket.on('bulk:error', (data: any) => {
             toast.error(`Campaign error: ${data.error}`);
             setSending(false);
             setLiveAnalyticsCampaignId(null);
