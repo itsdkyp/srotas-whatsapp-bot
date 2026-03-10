@@ -199,7 +199,17 @@ export const getCampaign = async (id: string) => {
 
 export const sendBulkMessages = async (data: any) => {
     await mockDelay(1000);
-    const total = 42; // Mock total contacts
+
+    // Determine total based on group if possible, else default to 50
+    let total = 50;
+    if (data.group === 'All Customers') total = 5000;
+    else if (data.group === 'Premium Users') total = 1200;
+    else if (data.group === 'India Region') total = 2450;
+    else if (data.group === 'B2B Clients') total = 340;
+
+    // For demo purposes, we will only actually "simulate" up to 100 messages slowly 
+    // so the user isn't waiting 20 minutes. But we will make the final count jump to the total.
+    const simulateCount = Math.min(total, 60);
 
     const newCampaign = {
         id: Date.now(),
@@ -246,8 +256,19 @@ export const sendBulkMessages = async (data: any) => {
                 });
             }
 
-            if (sent + failed >= total) {
+            if (sent + failed >= simulateCount) {
                 clearInterval(interval);
+
+                // If it was a huge group, instantly simulate the rest
+                if (total > simulateCount) {
+                    const remaining = total - simulateCount;
+                    const extraFailed = Math.floor(remaining * 0.05); // 5% failure
+                    sent += (remaining - extraFailed);
+                    failed += extraFailed;
+                    newCampaign.sent = sent;
+                    newCampaign.failed = failed;
+                }
+
                 newCampaign.status = 'completed';
                 if (typeof window !== 'undefined' && (window as any).triggerMockSocket) {
                     (window as any).triggerMockSocket('bulk:complete', {
@@ -255,7 +276,7 @@ export const sendBulkMessages = async (data: any) => {
                     });
                 }
             }
-        }, 300); // 1 message every 300ms
+        }, 100); // 1 message every 100ms for faster demo
     }, 500);
 
     return { status: 'started', total };
