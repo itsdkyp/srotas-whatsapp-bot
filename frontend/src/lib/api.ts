@@ -21,7 +21,7 @@ export const getSettings = async () => { await mockDelay(300); return DEMO_SETTI
 export const updateSettings = async (data: any) => { await mockDelay(500); Object.assign(DEMO_SETTINGS, data); return { success: true }; };
 export const checkForUpdate = async () => { await mockDelay(800); return { currentVersion: '1.2.0', latestVersion: '1.2.0', updateAvailable: false, releaseUrl: 'https://github.com', error: null } as any; };
 export const getVersion = async () => ({ version: '1.2.0' } as any);
-export const getLicenseStatus = async () => { await mockDelay(400); return { activated: true, isLifetime: true, expiryDate: null, daysRemaining: null, keyMasked: 'SROT-****-****-2026' }; };
+export const getLicenseStatus = async () => { await mockDelay(400); return { activated: true, isLifetime: false, expiryDate: '2026-12-31', daysRemaining: 365, keyMasked: 'DEMO-****-****-2026' }; };
 export const activateLicense = async (key: string) => { await mockDelay(1000); if (key === 'SROTAS-EASTER-EGG-2026' || key.length > 5) return { success: true }; throw new Error('Invalid key'); };
 
 export const getSessions = async () => { await mockDelay(300); return [{ id: 'sess_1', name: 'Primary Support', phone: '919876543210', status: 'ready', auto_reply: 1, ai_replies_enabled: 1, quick_replies_enabled: 1 }]; };
