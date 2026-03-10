@@ -159,7 +159,41 @@ export const getCampaigns = async () => {
     ];
 };
 export const getCampaign = async (id: string) => { await mockDelay(300); return { id: parseInt(id), name: 'Demo Campaign', session_name: 'Primary Support', group_name: 'All Customers', status: 'completed', sent: 5000, failed: 20, template: 'Hello {{name}}', messages: [], errorBreakdown: [{ error: "Invalid number", count: 15 }, { error: "Timeout", count: 5 }], started_at: new Date().toISOString() }; };
-export const sendBulkMessages = async (data: any) => { await mockDelay(1000); return { status: 'started', total: 100 }; };
+export const sendBulkMessages = async (data: any) => {
+    await mockDelay(1000);
+    const total = 50; // Mock total contacts
+
+    // Simulate background sending progress
+    setTimeout(() => {
+        let sent = 0;
+        let failed = 0;
+        const interval = setInterval(() => {
+            const isFailure = Math.random() < 0.1; // 10% failure rate
+            if (isFailure) failed++; else sent++;
+
+            if (typeof window !== 'undefined' && (window as any).triggerMockSocket) {
+                (window as any).triggerMockSocket('bulk:progress', {
+                    total,
+                    sent,
+                    failed,
+                    lastPhone: '91987654' + Math.floor(Math.random() * 1000).toString().padStart(3, '0'),
+                    lastStatus: isFailure ? 'failed' : 'sent'
+                });
+            }
+
+            if (sent + failed >= total) {
+                clearInterval(interval);
+                if (typeof window !== 'undefined' && (window as any).triggerMockSocket) {
+                    (window as any).triggerMockSocket('bulk:complete', {
+                        total, sent, failed
+                    });
+                }
+            }
+        }, 300); // 1 message every 300ms
+    }, 500);
+
+    return { status: 'started', total };
+};
 export const previewMessage = async (template: string, contact: any) => { await mockDelay(200); return { rendered: template.replace(/{{name}}/g, 'Demo Name') }; };
 export const deleteCampaign = async (id: string) => { await mockDelay(300); return { success: true }; };
 export const retryCampaign = async (id: string, sessionId: string) => { await mockDelay(800); return { status: 'started', total: 20 }; };
