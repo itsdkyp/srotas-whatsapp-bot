@@ -29,6 +29,20 @@ export function Sessions() {
     useEffect(() => { fetchSessions(); }, []);
 
     useEffect(() => {
+        const handleTour = (e: any) => {
+            const step = e.detail;
+            if (step === 'sessions') {
+                setIsAddModalOpen(true);
+            } else {
+                setIsAddModalOpen(false);
+                setQrModalOpen(false);
+            }
+        };
+        window.addEventListener('tour-step', handleTour);
+        return () => window.removeEventListener('tour-step', handleTour);
+    }, []);
+
+    useEffect(() => {
         if (!socket) return;
         const handleQr = async (data: any) => {
             if (activeQrSession.current === data.sessionId) { setQrCodeDataUrl(data.qr); setQrModalOpen(true); }

@@ -110,8 +110,105 @@ export function AppShell({ children }: AppShellProps) {
 
     const activeLabel = allNavItems.find(n => n.id === activePage)?.label || 'Dashboard';
 
+    const [tourActive, setTourActive] = useState(false);
+    const [tourStep, setTourStep] = useState(0);
+
+    const TOUR_STEPS = [
+        { id: 'dashboard', page: 'dashboard', title: 'Analytics Dashboard', desc: 'Welcome to Srotas.bot! This dashboard gives you a real-time overview of your WhatsApp automation performance. Track total messages sent, view delivery success rates, and monitor hourly AI response trends. Use the dropdown at the top to filter stats by Today, 7 Days, or 30 Days.' },
+        { id: 'sessions', page: 'sessions', title: 'Device Management', desc: 'Connect multiple WhatsApp accounts simultaneously. Just click Add Account, give it a name, and scan the QR code with your WhatsApp app (Linked Devices). You can connect separate numbers for Sales, Support, and Marketing.' },
+        { id: 'contacts', page: 'contacts', title: 'CRM & Contacts', desc: 'Manage your entire customer database here. Click "Upload CSV" to import thousands of contacts at once, and assign them to specific Groups (like "Premium Users" or "India Region") to keep your marketing highly targeted.' },
+        { id: 'templates', page: 'templates', title: 'Smart Templates', desc: 'Before sending a campaign, create reusable message templates here. Click "Create Template", write your message, and use dynamic variables like {{name}} or {{company}}. These variables automatically swap out with the user\'s real data when sent!' },
+        { id: 'messaging', page: 'messaging', title: 'Bulk Campaigns', desc: 'Ready to launch? Click "New Campaign", select a target Group, and pick a Template. You can attach up to 10 images or documents! Crucially, the bot uses randomized minimum and maximum sending delays (e.g., 8 to 18 seconds) between each message to mimic human behavior and prevent WhatsApp bans.' },
+        { id: 'messaging-analytics', page: 'messaging', title: 'Campaign Analytics', desc: 'Once a campaign is running or completed, click the "Analytics" button next to it. This opens a detailed report showing exactly who received the message, who failed, and specific error logs if a number was invalid or timed out.' },
+        { id: 'scheduler', page: 'scheduler', title: 'Campaign Scheduler', desc: 'Automate your outreach completely. Click "New Schedule", pick a group and template, and set a frequency (Daily, Weekly on Mondays, or Monthly on the 1st). The bot will automatically wake up and send your campaign at the exact scheduled time.' },
+        { id: 'quickreplies', page: 'quickreplies', title: 'Keyword Auto-Replies', desc: 'Set up instant responses for common questions. Add a trigger keyword (like "pricing" or "demo"), and whenever a user sends that exact word, the bot instantly replies with your predefined text and media.' },
+        { id: 'settings', page: 'settings', title: 'AI Persona Engine', desc: 'The real magic happens here. Under Settings, select your AI provider (Gemini or OpenAI) and paste your API key. In the massive System Instructions box, define your exact business persona, tone, and rules. The AI will then take over and automatically chat with customers exactly how you told it to!' }
+    ];
+
+    useEffect(() => {
+        const handleStartTour = () => {
+            setTourStep(0);
+            setTourActive(true);
+            setActivePage(TOUR_STEPS[0].page);
+        };
+        window.addEventListener('start-tour', handleStartTour);
+        return () => window.removeEventListener('start-tour', handleStartTour);
+    }, []);
+
+    const nextTourStep = () => {
+        if (tourStep < TOUR_STEPS.length - 1) {
+            const next = tourStep + 1;
+            setTourStep(next);
+            setActivePage(TOUR_STEPS[next].page);
+            setTimeout(() => window.dispatchEvent(new CustomEvent('tour-step', { detail: TOUR_STEPS[next].id })), 100);
+        } else {
+            setTourActive(false);
+        }
+    };
+
+    const prevTourStep = () => {
+        if (tourStep > 0) {
+            const prev = tourStep - 1;
+            setTourStep(prev);
+            setActivePage(TOUR_STEPS[prev].page);
+            setTimeout(() => window.dispatchEvent(new CustomEvent('tour-step', { detail: TOUR_STEPS[prev].id })), 100);
+        }
+    };
+
     return (
-        <div className="flex h-screen bg-background text-foreground overflow-hidden">
+        <div className="flex h-full bg-background text-foreground overflow-hidden">
+            {/* ── Guided Tour Overlay ─────────────────────────────── */}
+            <AnimatePresence>
+                {tourActive && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 50, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 20, scale: 0.95 }}
+                        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                        className="fixed bottom-8 right-8 z-[100] w-[350px] bg-card/95 backdrop-blur-xl border border-primary/40 shadow-2xl rounded-2xl overflow-hidden"
+                    >
+                        <div className="h-1.5 w-full bg-secondary">
+                            <motion.div
+                                className="h-full bg-gradient-to-r from-blue-500 to-cyan-400"
+                                animate={{ width: `${((tourStep + 1) / TOUR_STEPS.length) * 100}%` }}
+                                transition={{ duration: 0.3 }}
+                            />
+                        </div>
+                        <div className="p-5">
+                            <div className="flex justify-between items-start mb-2">
+                                <span className="text-[10px] font-bold tracking-widest uppercase text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                                    Step {tourStep + 1} of {TOUR_STEPS.length}
+                                </span>
+                                <button onClick={() => setTourActive(false)} className="text-muted-foreground hover:text-foreground">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+                                </button>
+                            </div>
+                            <h3 className="text-lg font-bold mb-1.5" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                                {TOUR_STEPS[tourStep].title}
+                            </h3>
+                            <p className="text-sm text-muted-foreground leading-relaxed mb-5">
+                                {TOUR_STEPS[tourStep].desc}
+                            </p>
+                            <div className="flex justify-between items-center pt-3 border-t border-border/50">
+                                <button
+                                    onClick={prevTourStep}
+                                    disabled={tourStep === 0}
+                                    className={`text-xs font-medium px-3 py-1.5 rounded-md transition-colors ${tourStep === 0 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-secondary'}`}
+                                >
+                                    Previous
+                                </button>
+                                <button
+                                    onClick={nextTourStep}
+                                    className="text-xs font-bold px-4 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm"
+                                >
+                                    {tourStep === TOUR_STEPS.length - 1 ? 'Finish Tour' : 'Next Step'}
+                                </button>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             {/* ── Sidebar ─────────────────────────────── */}
             <motion.aside
                 initial={{ x: -20, opacity: 0 }}
@@ -274,7 +371,7 @@ export function AppShell({ children }: AppShellProps) {
                         onClick={() => setActivePage('updates')}
                         className="text-xs px-3 py-1 rounded-full badge-blue font-medium cursor-pointer hover:opacity-80 transition-opacity"
                         title="Check for updates"
-                    >v1.1.8</button>
+                    >v1.2.0</button>
                 </div>
 
                 {/* Page with transition */}
