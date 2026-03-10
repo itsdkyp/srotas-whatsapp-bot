@@ -146,17 +146,28 @@ export const addGroup = async (name: string, description?: string) => { await mo
 export const renameGroup = async (id: string, name: string) => { await mockDelay(300); return { success: true }; };
 export const deleteGroup = async (id: string) => { await mockDelay(300); return { success: true }; };
 
-const MOCK_CONTACTS = [
-    { id: 1, phone: '919876543210', name: 'Rajesh Kumar', company: 'Infosys', group_name: 'India Region', custom_fields: '{"plan": "enterprise"}', created_at: new Date().toISOString() },
-    { id: 2, phone: '918765432109', name: 'Priya Sharma', company: 'TCS', group_name: 'India Region', custom_fields: '{}', created_at: new Date().toISOString() },
-    { id: 3, phone: '14155552671', name: 'Sarah Connor', company: 'TechNova', group_name: 'Premium Users', custom_fields: '{"status": "active"}', created_at: new Date().toISOString() },
-    { id: 4, phone: '447700900077', name: 'James Smith', company: 'Global Solutions UK', group_name: 'B2B Clients', custom_fields: '{}', created_at: new Date().toISOString() },
-    { id: 5, phone: '61412345678', name: 'Oliver Twist', company: 'Aussie Imports', group_name: 'All Customers', custom_fields: '{}', created_at: new Date().toISOString() },
-    { id: 6, phone: '919988776655', name: 'Ananya Gupta', company: 'Wipro', group_name: 'India Region', custom_fields: '{}', created_at: new Date().toISOString() },
-    { id: 7, phone: '12125558901', name: 'Michael Chang', company: 'StartUp Inc', group_name: 'All Customers', custom_fields: '{"tier": "free"}', created_at: new Date().toISOString() },
-    { id: 8, phone: '491712345678', name: 'Klaus Müller', company: 'Berlin Tech', group_name: 'B2B Clients', custom_fields: '{}', created_at: new Date().toISOString() },
-    { id: 9, phone: '919122334455', name: 'Vikram Singh', company: 'Reliance', group_name: 'Premium Users', custom_fields: '{}', created_at: new Date().toISOString() }
-];
+const firstNames = ['Rajesh', 'Priya', 'Amit', 'Neha', 'Sanjay', 'Kavita', 'Vikram', 'Anjali', 'Rahul', 'Sneha', 'Michael', 'Sarah', 'David', 'Emma', 'John', 'Lisa', 'James', 'Emily', 'Robert', 'Jessica', 'William', 'Sophia', 'Thomas', 'Mia', 'Klaus', 'Hans', 'Yuki', 'Wei', 'Chen', 'Mohammed', 'Fatima', 'Omar', 'Aisha', 'Carlos', 'Maria', 'Jose', 'Ana'];
+const lastNames = ['Kumar', 'Sharma', 'Singh', 'Patel', 'Gupta', 'Verma', 'Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez', 'Hernandez', 'Lopez', 'Gonzalez', 'Wilson', 'Anderson', 'Thomas', 'Taylor', 'Moore', 'Jackson', 'Martin', 'Lee', 'Perez', 'Thompson', 'White', 'Harris', 'Sanchez', 'Clark', 'Ramirez', 'Lewis'];
+const companies = ['Infosys', 'TCS', 'Wipro', 'TechNova', 'Globex', 'Acme Corp', 'StartUp Inc', 'Berlin Tech', 'Aussie Imports', 'Reliance', 'Tata', 'Mahindra', 'HDFC', 'ICICI', 'Amazon', 'Google', 'Microsoft', 'Apple', 'Meta', 'Tesla', 'Netflix', 'Oracle', 'IBM', 'Intel', 'Cisco', 'HP', 'Dell', 'Sony', 'Samsung', 'Panasonic', 'LG', 'Toyota', 'Honda', 'Ford', 'BMW', 'Mercedes'];
+
+const MOCK_CONTACTS: any[] = [];
+for (let i = 1; i <= 150; i++) {
+    const fn = firstNames[Math.floor(Math.random() * firstNames.length)];
+    const ln = lastNames[Math.floor(Math.random() * lastNames.length)];
+    const company = companies[Math.floor(Math.random() * companies.length)];
+    const group_name = ['All Customers', 'Premium Users', 'India Region', 'B2B Clients', 'default'][Math.floor(Math.random() * 5)];
+    const phonePrefix = ['91', '1', '44', '61', '49'][Math.floor(Math.random() * 5)];
+    const phone = phonePrefix + Math.floor(Math.random() * 1000000000).toString().padStart(10, '0');
+    MOCK_CONTACTS.push({
+        id: i,
+        phone,
+        name: `${fn} ${ln}`,
+        company,
+        group_name,
+        custom_fields: '{}',
+        created_at: new Date(Date.now() - Math.floor(Math.random() * 10000000000)).toISOString()
+    });
+}
 
 export const getContacts = async (group?: string, search?: string) => {
     await mockDelay(400);
