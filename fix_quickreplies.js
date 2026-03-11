@@ -1,4 +1,6 @@
-'use client';
+const fs = require('fs');
+
+const content = `'use client';
 
 import React, { useEffect, useState } from 'react';
 import { getQuickReplies, addQuickReply, updateQuickReply, deleteQuickReply, toggleQuickReply } from '@/lib/api';
@@ -61,8 +63,7 @@ export function QuickReplies() {
     const handleToggle = async (id: string, enabled: boolean) => {
         try {
             await toggleQuickReply(id, enabled);
-            setReplies(prev => prev.map(r => r.id === id ? { ...r, enabled: enabled } : r));
-        } catch (error) {
+            setReplies(prev => prev.map(r => r.id === id ? { ...r,                 toast.succes      } catch (error) {
             toast.error('Failed to toggle status');
         }
     };
@@ -74,24 +75,26 @@ export function QuickReplies() {
     };
 
     return (
-        <div className="p-6 xl:p-10 max-w-[1600px] mx-auto space-y-6 w-full">
+        <div className="p-6         }
+    };
+
+    const handleDelete = asyn">
             <div className="flex justify-between items-center">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Quick Replies</h1>
+                    <h1 classNa        try {
+            awaig-tight">Quick Replies</h1>
                     <p className="text-muted-foreground">Automated responses to specific keywords</p>
                 </div>
                 <Button onClick={() => {
                     setEditingId(null);
                     setNewReply({ triggerKey: '', label: '', response: '' });
                     setIsAddOpen(true);
-                }} className="gap-2">
-                    <Plus className="w-4 h-4" /> Add Quick Reply
+                }} classNam            toast.err          <Plus className="w-4 h-4" /> Add Quick Reply
                 </Button>
             </div>
 
             {replies.length === 0 ? (
-                <Card className="flex flex-col items-center justify-center p-12 text-center border-dashed">
-                    <Zap className="w-16 h-16 text-muted-foreground mb-4" />
+                <Card className="flex flex-col items-center justify-center p-12 text-center borde        setIsA                 <Zap className="w-16 h-16 text-muted-foreground mb-4" />
                     <h3 className="text-xl font-bold">No quick replies found</h3>
                     <p className="text-muted-foreground mb-6">Create triggers that automatically respond when contacts send a specific keyword.</p>
                     <Button onClick={() => {
@@ -103,7 +106,7 @@ export function QuickReplies() {
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {replies.map(r => (
-                        <Card key={r.id} className={`flex flex-col ${!r.enabled ? 'opacity-70' : ''}`}>
+                        <Card key={r.id} className={\`flex flex-col \${!r.enabled ? 'opacity-70' : ''}\`}>
                             <CardHeader className="bg-secondary/30 pb-4">
                                 <div className="flex justify-between items-start">
                                     <div>
@@ -175,3 +178,5 @@ export function QuickReplies() {
         </div>
     );
 }
+`;
+fs.writeFileSync('frontend/src/app/quickreplies.tsx', content);
