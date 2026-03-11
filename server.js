@@ -89,6 +89,17 @@ app.post('/api/activate', (req, res) => {
     }
 });
 
+app.post('/api/deactivate', (req, res) => {
+    try {
+        const { settings: settingsDb } = require('./src/db/database');
+        settingsDb.set('license_activated', 'false');
+        settingsDb.set('license_key', '');
+        res.json({ success: true, message: 'License deactivated successfully.' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ─── Admin: Key Generator (Easter egg only) ───
 app.post('/api/admin/generate-key', (req, res) => {
     const { settings: settingsDb } = require('./src/db/database');

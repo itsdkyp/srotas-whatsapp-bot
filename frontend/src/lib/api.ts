@@ -10,6 +10,7 @@ const api = axios.create({
 
 export const getLicenseStatus = () => api.get('/license-status').then((r) => r.data);
 export const activateLicense = (key: string) => api.post('/activate', { key }).then((r) => r.data);
+export const deactivateLicense = () => api.post('/deactivate').then((r) => r.data);
 
 // Sessions
 export const getSessions = () => api.get('/sessions').then((r) => r.data);
