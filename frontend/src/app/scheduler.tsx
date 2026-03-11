@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { getSchedules, addSchedule, deleteSchedule, toggleSchedule, getSessions, getGroups, getTemplates } from '@/lib/api';
+import { getSchedules, addSchedule, updateSchedule, deleteSchedule, toggleSchedule, getSessions, getGroups, getTemplates } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Trash2, Plus, CalendarClock } from 'lucide-react';
+import { Trash2, Edit2, Plus, CalendarClock } from 'lucide-react';
 import { toast } from 'sonner';
 
 export function Scheduler() {
@@ -20,6 +20,7 @@ export function Scheduler() {
     const [templates, setTemplates] = useState<any[]>([]);
 
     const [isAddOpen, setIsAddOpen] = useState(false);
+    const [editingId, setEditingId] = useState<string | null>(null);
     const [newSchedule, setNewSchedule] = useState({
         name: '',
         sessionId: '',
@@ -54,22 +55,43 @@ export function Scheduler() {
         }
     };
 
-    const handleAdd = async () => {
+    const handleAddOrEdit = async () => {
         if (!newSchedule.name || !newSchedule.sessionId || !newSchedule.groupName || !newSchedule.template) {
             return toast.error('Please fill in all required fields');
         }
 
         try {
-            await addSchedule(newSchedule);
-            toast.success('Schedule created');
+            if (editingId) {
+                await updateSchedule(editingId, newSchedule);
+                toast.success('Schedule updated');
+            } else {
+                await addSchedule(newSchedule);
+                toast.success('Schedule created');
+            }
             setIsAddOpen(false);
+            setEditingId(null);
             setNewSchedule({
                 name: '', sessionId: '', groupName: '', template: '', frequency: 'once', dayOfWeek: 1, dayOfMonth: 1, sendTime: '09:00'
             });
             fetchData();
         } catch (error) {
-            toast.error('Failed to create schedule');
+            toast.error(editingId ? 'Failed to update schedule' : 'Failed to create schedule');
         }
+    };
+
+    const openEditModal = (s: any) => {
+        setEditingId(s.id);
+        setNewSchedule({
+            name: s.name,
+            sessionId: s.session_id.toString(),
+            groupName: s.group_name,
+            template: s.template,
+            frequency: s.frequency,
+            dayOfWeek: s.day_of_week || 1,
+            dayOfMonth: s.day_of_month || 1,
+            sendTime: s.send_time || '09:00'
+        });
+        setIsAddOpen(true);
     };
 
     const handleDelete = async (id: string) => {
@@ -96,10 +118,14 @@ export function Scheduler() {
         <div className="p-6 xl:p-10 max-w-[1600px] mx-auto space-y-6 w-full">
             <div className="flex justify-between items-center">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Scheduled Campaigns</h1>
-                    <p className="text-muted-foreground">Automate your messages to send at specific times</p>
+                    <h1 className="text-3xl font-bold tracking-tight">Campaign Scheduler</h1>
+                    <p className="text-muted-foreground">Automate your bulk messages</p>
                 </div>
-                <Button onClick={() => setIsAddOpen(true)} className="gap-2">
+                <Button onClick={() => {
+                    setEditingId(null);
+                    setNewSchedule({ name: '', sessionId: '', groupName: '', template: '', frequency: 'once', dayOfWeek: 1, dayOfMonth: 1, sendTime: '09:00' });
+                    setIsAddOpen(true);
+                }} className="gap-2">
                     <Plus className="w-4 h-4" /> New Schedule
                 </Button>
             </div>
@@ -107,9 +133,13 @@ export function Scheduler() {
             {schedules.length === 0 ? (
                 <Card className="flex flex-col items-center justify-center p-12 text-center border-dashed">
                     <CalendarClock className="w-16 h-16 text-muted-foreground mb-4" />
-                    <h3 className="text-xl font-bold">No schedules found</h3>
-                    <p className="text-muted-foreground mb-6">Create a schedule to automate your messaging campaigns.</p>
-                    <Button onClick={() => setIsAddOpen(true)}>Create Schedule</Button>
+                    <h3 className="text-xl font-bold">No schedules active</h3>
+                    <p className="text-muted-foreground mb-6">Create automated campaigns to run daily, weekly, or monthly.</p>
+                    <Button onClick={() => {
+                        setEditingId(null);
+                        setNewSchedule({ name: '', sessionId: '', groupName: '', template: '', frequency: 'once', dayOfWeek: 1, dayOfMonth: 1, sendTime: '09:00' });
+                        setIsAddOpen(true);
+                    }}>Create Schedule</Button>
                 </Card>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -142,8 +172,14 @@ export function Scheduler() {
                                     <span className="text-muted-foreground">Last Run:</span>
                                     <span>{s.last_run ? new Date(s.last_run).toLocaleString() : 'Never'}</span>
                                 </div>
+                                <div className="text-xs text-muted-foreground mt-4 border-t pt-3">
+                                    Next run: {s.next_run ? new Date(s.next_run).toLocaleString() : 'Pending'}
+                                </div>
                             </CardContent>
-                            <CardFooter className="border-t p-4 flex justify-end bg-secondary/10">
+                            <CardFooter className="border-t p-4 flex justify-end gap-2 bg-secondary/10">
+                                <Button variant="outline" size="sm" onClick={() => openEditModal(s)}>
+                                    <Edit2 className="w-4 h-4 mr-2" /> Edit
+                                </Button>
                                 <Button variant="destructive" size="sm" onClick={() => handleDelete(s.id)}>
                                     <Trash2 className="w-4 h-4 mr-2" /> Delete
                                 </Button>
@@ -154,9 +190,9 @@ export function Scheduler() {
             )}
 
             <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-                <DialogContent className="sm:max-w-lg">
+                <DialogContent className="max-w-md">
                     <DialogHeader>
-                        <DialogTitle>Create Schedule</DialogTitle>
+                        <DialogTitle>{editingId ? 'Edit Schedule' : 'Create New Schedule'}</DialogTitle>
                         <DialogDescription>Set up an automated messaging campaign.</DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
@@ -244,7 +280,7 @@ export function Scheduler() {
                             </div>
                         )}
 
-                        <Button className="w-full mt-4" onClick={handleAdd}>Save Schedule</Button>
+                        <Button className="w-full mt-4" onClick={handleAddOrEdit}>{editingId ? 'Update Schedule' : 'Save Schedule'}</Button>
                     </div>
                 </DialogContent>
             </Dialog>
