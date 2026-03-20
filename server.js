@@ -322,9 +322,31 @@ app.delete('/api/groups/:id', (req, res) => {
 // ═══════════════════════════════════════
 
 app.get('/api/contacts', (req, res) => {
-    const { group, search } = req.query;
+    const { group, search, page, limit } = req.query;
+
+    if (page || limit) {
+        const p = parseInt(page) || 1;
+        const l = parseInt(limit) || 50;
+        const offset = (p - 1) * l;
+        return res.json(contactsDb.getPaginated(group === 'all' ? undefined : group, l, offset, search));
+    }
+
     if (search) return res.json(contactsDb.search(search));
-    res.json(contactsDb.getAll(group));
+    res.json(contactsDb.getAll(group === 'all' ? undefined : group));
+});
+
+app.get('/api/contacts/export-csv', (req, res) => {
+    const { group } = req.query;
+    const rows = contactsDb.getAll(group === 'all' ? undefined : group);
+
+    let csv = 'phone,name,company,group_name\n';
+    for (const c of rows) {
+        csv += `${c.phone || ''},${c.name || ''},${c.company || ''},${c.group_name || ''}\n`;
+    }
+
+    res.header('Content-Type', 'text/csv');
+    res.attachment(`contacts-${group || 'all'}-${Date.now()}.csv`);
+    return res.send(csv);
 });
 
 app.get('/api/contacts/groups', (req, res) => {

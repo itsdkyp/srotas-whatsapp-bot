@@ -43,6 +43,9 @@ db.exec(`
     UNIQUE(phone, group_name)
   );
 
+  CREATE INDEX IF NOT EXISTS idx_contacts_group ON contacts(group_name);
+  CREATE INDEX IF NOT EXISTS idx_contacts_phone ON contacts(phone);
+
   CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT,
@@ -234,6 +237,34 @@ const groups = {
 };
 
 const contacts = {
+    getPaginated: (groupName, limit, offset, search) => {
+        let query = 'SELECT * FROM contacts';
+        let countQuery = 'SELECT COUNT(*) as count FROM contacts';
+        const params = [];
+
+        let conditions = [];
+        if (groupName) {
+            conditions.push('group_name = ?');
+            params.push(groupName);
+        }
+        if (search) {
+            conditions.push('(name LIKE ? OR phone LIKE ? OR company LIKE ?)');
+            const s = `%${search}%`;
+            params.push(s, s, s);
+        }
+
+        if (conditions.length > 0) {
+            const where = ' WHERE ' + conditions.join(' AND ');
+            query += where;
+            countQuery += where;
+        }
+
+        query += ' ORDER BY group_name, name LIMIT ? OFFSET ?';
+
+        const count = db.prepare(countQuery).get(...params).count;
+        const rows = db.prepare(query).all(...params, limit, offset);
+        return { contacts: rows, total: count };
+    },
     getAll: (groupName) => {
         if (groupName) return db.prepare('SELECT * FROM contacts WHERE group_name = ? ORDER BY name').all(groupName);
         return db.prepare('SELECT * FROM contacts ORDER BY group_name, name').all();

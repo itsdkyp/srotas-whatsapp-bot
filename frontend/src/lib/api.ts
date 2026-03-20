@@ -29,8 +29,8 @@ export const renameGroup = (id: string, name: string) => api.put(`/groups/${id}`
 export const deleteGroup = (id: string) => api.delete(`/groups/${id}`).then((r) => r.data);
 
 // Contacts
-export const getContacts = (group?: string, search?: string) =>
-    api.get('/contacts', { params: { group, search } }).then((r) => r.data);
+export const getContacts = (group?: string, search?: string, page: number = 1, limit: number = 50) =>
+    api.get('/contacts', { params: { group, search, page, limit } }).then((r) => r.data);
 export const getContactGroups = () => api.get('/contacts/groups').then((r) => r.data);
 export const addContact = (data: any) => api.post('/contacts', data).then((r) => r.data);
 export const deleteContact = (id: string) => api.delete(`/contacts/${id}`).then((r) => r.data);

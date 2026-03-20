@@ -23,6 +23,10 @@ export function Contacts() {
     const [sessions, setSessions] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
+    const [page, setPage] = useState(1);
+    const [total, setTotal] = useState(0);
+    const limit = 50;
+
     const [search, setSearch] = useState('');
     const [selectedGroup, setSelectedGroup] = useState<string>('all');
     const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
@@ -49,22 +53,28 @@ export function Contacts() {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
-        fetchData();
-    }, [selectedGroup]);
+        fetchData(page, search);
+    }, [selectedGroup, page]);
 
-    const fetchData = async () => {
+    const fetchData = async (currentPage = page, currentSearch = search) => {
         setLoading(true);
         try {
-            const [g, c, s] = await Promise.all([
+            const [g, cData, s] = await Promise.all([
                 getGroups(),
-                getContacts(selectedGroup === 'all' ? undefined : selectedGroup),
+                getContacts(selectedGroup === 'all' ? undefined : selectedGroup, currentSearch, currentPage, limit),
                 getSessions()
             ]);
             setGroups(g);
-            setContacts(c);
+
+            // Handle both paginated response and fallback unpaginated response
+            const contactsList = cData.contacts || (Array.isArray(cData) ? cData : []);
+            const totalCount = cData.total !== undefined ? cData.total : contactsList.length;
+
+            setContacts(contactsList);
+            setTotal(totalCount);
             setSessions(s);
 
-            if (!groups.some(gr => gr.name === newContact.group)) {
+            if (!g.some((gr: any) => gr.name === newContact.group)) {
                 setNewContact(prev => ({ ...prev, group: g[0]?.name || 'default' }));
             }
         } catch (error) {
@@ -75,15 +85,8 @@ export function Contacts() {
     };
 
     const handleSearch = async () => {
-        setLoading(true);
-        try {
-            const c = await getContacts(undefined, search);
-            setContacts(c);
-        } catch (error) {
-            toast.error('Search failed');
-        } finally {
-            setLoading(false);
-        }
+        setPage(1);
+        fetchData(1, search);
     };
 
     const handleAddContact = async () => {
@@ -251,20 +254,9 @@ export function Contacts() {
     };
 
     const exportCsv = () => {
-        if (!contacts.length) return toast.error('No contacts to export');
-
-        let csv = 'phone,name,company,group_name\n';
-        contacts.forEach(c => {
-            csv += `${c.phone},${c.name || ''},${c.company || ''},${c.group_name || ''}\n`;
-        });
-
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `contacts-${selectedGroup}-${new Date().getTime()}.csv`;
-        a.click();
-        window.URL.revokeObjectURL(url);
+        if (total === 0) return toast.error('No contacts to export');
+        const qs = selectedGroup === 'all' ? '' : `?group=${encodeURIComponent(selectedGroup)}`;
+        window.open(`/api/contacts/export-csv${qs}`, '_blank');
     };
 
     return (
@@ -402,6 +394,23 @@ export function Contacts() {
                         </TableBody>
                     </Table>
                 </CardContent>
+
+                {/* Pagination Controls */}
+                {total > 0 && (
+                    <div className="flex items-center justify-between p-4 border-t border-border bg-secondary/10">
+                        <div className="text-sm text-muted-foreground">
+                            Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total} contacts
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
+                                Previous
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => setPage(p => p + 1)} disabled={page * limit >= total}>
+                                Next
+                            </Button>
+                        </div>
+                    </div>
+                )}
             </Card>
 
             {/* Add Contact Modal */}
