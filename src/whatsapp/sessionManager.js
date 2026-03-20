@@ -308,9 +308,9 @@ async function getWhatsAppContacts(sessionId, retries = 3) {
     try {
         const waContacts = await client.getContacts();
         return waContacts
-            .filter(c => (c.isMyContact || c.name || c.isGroup) && c.id)
+            .filter(c => !c.isGroup && c.id && (c.isMyContact || c.name || c.pushname))
             .map(c => ({
-                phone: c.isGroup ? c.id._serialized : c.id.user,
+                phone: c.id.user,
                 name: c.name || c.pushname || '',
                 company: '',
             }));
