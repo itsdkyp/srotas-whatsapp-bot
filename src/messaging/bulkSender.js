@@ -132,8 +132,12 @@ async function sendBulk(sessionId, contacts, template, options = {}) {
             }
 
             let message = renderTemplate(template, contact);
-            const phone = contact.phone.replace(/[^0-9]/g, '');
-            const chatId = phone.includes('@c.us') ? phone : `${phone}@c.us`;
+            const phoneStr = String(contact.phone).trim();
+            // Remove spaces, parens, and standard visual separators but preserve @g.us / @c.us formats.
+            // If they provided a raw group ID (without @g.us), it might break if they format personal numbers with hyphens,
+            // so we rely on the backend/UI preserving @g.us or the user including it in CSV for groups.
+            const phone = phoneStr.replace(/[^\d@\.\-a-zA-Z\+]/gi, '');
+            const chatId = phone.includes('@') ? phone : `${phone.replace(/[\-\+]/g, '')}@c.us`;
 
             try {
                 // ─── Construct Message Payload ───

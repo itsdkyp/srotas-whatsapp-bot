@@ -681,7 +681,8 @@ app.post('/api/media/upload', upload.array('media', 10), (req, res) => {
             const ext = path.extname(file.originalname) || '';
             const filename = `${file.filename}${ext}`;
             const dest = path.join(MEDIA_DIR, filename);
-            fs.renameSync(file.path, dest);
+            fs.copyFileSync(file.path, dest);
+            fs.unlinkSync(file.path);
             return {
                 path: dest,
                 filename: file.originalname,

@@ -116,7 +116,16 @@ function createClient(sessionId, name, retryCount = 0) {
         '--disable-dev-shm-usage',
         '--disable-accelerated-2d-canvas',
         '--no-first-run',
-        '--disable-gpu'
+        '--disable-gpu',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding',
+        '--disable-extensions',
+        '--disable-default-apps',
+        '--mute-audio',
+        '--disable-crash-reporter',
+        '--disable-software-rasterizer',
+        '--js-flags="--max-old-space-size=512"'
     ];
 
     // --single-process and --no-zygote only work reliably on Linux
@@ -299,9 +308,9 @@ async function getWhatsAppContacts(sessionId, retries = 3) {
     try {
         const waContacts = await client.getContacts();
         return waContacts
-            .filter(c => c.isMyContact && c.id && c.id.server === 'c.us')
+            .filter(c => (c.isMyContact || c.name || c.isGroup) && c.id)
             .map(c => ({
-                phone: c.id.user,
+                phone: c.isGroup ? c.id._serialized : c.id.user,
                 name: c.name || c.pushname || '',
                 company: '',
             }));
@@ -349,27 +358,22 @@ async function getGroupParticipants(sessionId, groupId, retries = 3) {
         const participants = chat.participants || [];
         const contacts = [];
 
+        // Pre-fetch all contacts to avoid sequential network lookups which cause timeouts
+        const allContacts = await client.getContacts().catch(() => []);
+        const contactMap = new Map();
+        for (const c of allContacts) {
+            if (c.id) contactMap.set(c.id._serialized, c);
+        }
+
         for (const p of participants) {
-            try {
-                const contact = await client.getContactById(p.id._serialized);
-                if (contact && p.id.server === 'c.us') {
-                    // Prioritize: pushname (their WA display name) > saved name > shortName > phone number
-                    const name = contact.pushname || contact.name || contact.shortName || p.id.user || '';
-                    contacts.push({
-                        phone: p.id.user,
-                        name,
-                        company: '',
-                    });
-                }
-            } catch (e) {
-                // If we can't get contact details, use basic info
-                if (p.id.server === 'c.us') {
-                    contacts.push({
-                        phone: p.id.user,
-                        name: p.id.user,
-                        company: '',
-                    });
-                }
+            if (p.id.server === 'c.us') {
+                const contact = contactMap.get(p.id._serialized);
+                const name = contact ? (contact.pushname || contact.name || contact.shortName || p.id.user || '') : (p.id.user || '');
+                contacts.push({
+                    phone: p.id.user,
+                    name,
+                    company: '',
+                });
             }
         }
 

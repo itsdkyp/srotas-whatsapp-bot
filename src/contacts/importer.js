@@ -56,10 +56,8 @@ function findColumn(columns, candidates) {
 }
 
 function normalizePhone(phone) {
-    // Strip spaces, dashes, parens. Keep leading +
-    let cleaned = phone.replace(/[\s\-\(\)]/g, '');
-    // If it doesn't start with +, assume it needs one
-    // But don't auto-add country code — user should provide it
+    // Strip spaces, parens, but preserve @g.us / @c.us formats.
+    let cleaned = phone.replace(/[^\d@\.\-a-zA-Z\+]/gi, '');
     return cleaned;
 }
 
