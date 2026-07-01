@@ -41,10 +41,18 @@ jobs:
         with:
           context: .
           push: false
-          load: false
+          load: true
           tags: srotas-bot:pr-test
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Save Docker Image to Tarball
+        run: docker save srotas-bot:pr-test -o srotas-bot-docker-image.tar
+      - name: Upload Docker Image Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: srotas-bot-docker-image
+          path: srotas-bot-docker-image.tar
+          retention-days: 7
 
   build-windows:
     name: Windows Package Check
@@ -141,6 +149,12 @@ jobs:
           
           Write-Host "All functionality tests passed against installed Windows .exe!"
           Stop-Process -Id $proc.Id -Force
+      - name: Upload Windows Installer (.exe) Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: srotas-bot-windows-installer
+          path: dist/*.exe
+          retention-days: 7
 
   build-mac:
     name: macOS Package Check
@@ -161,3 +175,11 @@ jobs:
         run: npm run build:mac
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: Upload macOS Packages (.dmg / .pkg) Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: srotas-bot-macos-installer
+          path: |
+            dist/*.dmg
+            dist/*.pkg
+          retention-days: 7
