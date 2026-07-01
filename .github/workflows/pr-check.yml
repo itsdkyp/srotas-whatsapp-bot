@@ -3,6 +3,9 @@ name: PR Checks
 on:
   pull_request:
     branches: [ "main" ]
+  push:
+    branches: [ "main", "feat/*" ]
+  workflow_dispatch:
 
 jobs:
   lint-and-build-ui:
