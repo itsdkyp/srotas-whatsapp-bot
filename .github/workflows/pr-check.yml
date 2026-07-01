@@ -87,15 +87,17 @@ jobs:
           Write-Host "Found installed executable: $($exeFile.FullName)"
           Write-Host "Starting installed app server: $($exeFile.FullName) --run-server"
           $env:PORT = "3005"
+          $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
           $proc = Start-Process -FilePath $exeFile.FullName -ArgumentList "--run-server" -PassThru
           
           Write-Host "Waiting for server on port 3005..."
           $ready = $false
-          for ($i = 0; $i -lt 30; $i++) {
-            Start-Sleep -Seconds 1
+          for ($i = 0; $i -lt 120; $i++) {
+            Start-Sleep -Milliseconds 250
             try {
               $resp = Invoke-WebRequest -Uri "http://localhost:3005/api/settings" -UseBasicParsing
               if ($resp.StatusCode -eq 200) {
+                $stopwatch.Stop()
                 $ready = $true
                 break
               }
@@ -107,6 +109,27 @@ jobs:
             if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force }
             exit 1
           }
+          
+          $startupTimeMs = $stopwatch.ElapsedMilliseconds
+          Write-Host "Server started and ready in $startupTimeMs ms ($([Math]::Round($startupTimeMs/1000, 2)) s)!"
+          
+          # Measure memory consumption of process tree
+          $procs = Get-Process | Where-Object { $_.ProcessName -like "*Srotas*" -or $_.Id -eq $proc.Id }
+          $totalWsBytes = ($procs | Measure-Object WorkingSet64 -Sum).Sum
+          $totalPrivateBytes = ($procs | Measure-Object PrivateMemorySize64 -Sum).Sum
+          $memWsMB = [Math]::Round($totalWsBytes / 1MB, 2)
+          $memPrivateMB = [Math]::Round($totalPrivateBytes / 1MB, 2)
+          
+          Write-Host "Memory Consumption (Working Set): $memWsMB MB"
+          Write-Host "Memory Consumption (Private Memory): $memPrivateMB MB"
+          
+          # Append benchmark metrics to GitHub Step Summary
+          "### ⚡ Windows Installed .exe Performance Benchmark" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| Metric | Result |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| :--- | :--- |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| **Startup Time to API Ready** | **$startupTimeMs ms** ($([Math]::Round($startupTimeMs/1000, 2))s) |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| **Memory Footprint (Working Set)** | **$memWsMB MB** |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| **Memory Footprint (Private Set)** | **$memPrivateMB MB** |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           
           Write-Host "Testing SPA Dashboard Route (/settings)..."
           $spaResp = Invoke-WebRequest -Uri "http://localhost:3005/settings" -UseBasicParsing
