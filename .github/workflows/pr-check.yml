@@ -66,6 +66,58 @@ jobs:
         env:
           CSC_LINK: ''
           CSC_KEY_PASSWORD: ''
+      - name: Silent Install Windows .exe
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path dist/*.exe | Select-Object -First 1
+          Write-Host "Installing $($exe.FullName)..."
+          Start-Process -FilePath $exe.FullName -ArgumentList "/S" -Wait
+          Write-Host "Installation completed."
+      - name: Verify Installed Windows .exe & Test Functionality
+        shell: pwsh
+        run: |
+          $exeFile = Get-ChildItem -Path "$env:LOCALAPPDATA\Programs" -Filter "*Srotas*.exe" -Recurse | Select-Object -First 1
+          if (!$exeFile) {
+            $exeFile = Get-ChildItem -Path "$env:LOCALAPPDATA\Programs" -Filter "*whatsapp*.exe" -Recurse | Select-Object -First 1
+          }
+          if (!$exeFile) {
+            Write-Error "Installed executable not found in $env:LOCALAPPDATA\Programs"
+            exit 1
+          }
+          Write-Host "Found installed executable: $($exeFile.FullName)"
+          Write-Host "Starting installed app server: $($exeFile.FullName) --run-server"
+          $env:PORT = "3005"
+          $proc = Start-Process -FilePath $exeFile.FullName -ArgumentList "--run-server" -PassThru
+          
+          Write-Host "Waiting for server on port 3005..."
+          $ready = $false
+          for ($i = 0; $i -lt 30; $i++) {
+            Start-Sleep -Seconds 1
+            try {
+              $resp = Invoke-WebRequest -Uri "http://localhost:3005/api/settings" -UseBasicParsing
+              if ($resp.StatusCode -eq 200) {
+                $ready = $true
+                break
+              }
+            } catch {}
+          }
+          
+          if (!$ready) {
+            Write-Error "Installed application failed to respond on API within 30 seconds."
+            if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+            exit 1
+          }
+          
+          Write-Host "Testing SPA Dashboard Route (/settings)..."
+          $spaResp = Invoke-WebRequest -Uri "http://localhost:3005/settings" -UseBasicParsing
+          if ($spaResp.StatusCode -ne 200) {
+            Write-Error "SPA route returned status $($spaResp.StatusCode)"
+            Stop-Process -Id $proc.Id -Force
+            exit 1
+          }
+          
+          Write-Host "All functionality tests passed against installed Windows .exe!"
+          Stop-Process -Id $proc.Id -Force
 
   build-mac:
     name: macOS Package Check
