@@ -1,5 +1,4 @@
 const sessionManager = require('../whatsapp/sessionManager');
-const { MessageMedia, Poll } = require('whatsapp-web.js');
 const { messages: messagesDb, campaigns: campaignsDb } = require('../db/database');
 const path = require('path');
 const fs = require('fs');
@@ -34,15 +33,58 @@ function renderTemplate(template, contact) {
 }
 
 /**
- * Send a single message with a timeout to prevent hanging forever.
+ * Determine mimetype from file extension.
  */
-function sendWithTimeout(client, chatId, content, sendOptions) {
+function getMimetype(filePath) {
+    const ext = path.extname(filePath).toLowerCase();
+    const map = {
+        '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+        '.gif': 'image/gif', '.webp': 'image/webp', '.mp4': 'video/mp4',
+        '.avi': 'video/avi', '.mkv': 'video/x-matroska', '.mov': 'video/quicktime',
+        '.pdf': 'application/pdf', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg',
+        '.wav': 'audio/wav', '.aac': 'audio/aac',
+        '.doc': 'application/msword',
+        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        '.xls': 'application/vnd.ms-excel',
+        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '.ppt': 'application/vnd.ms-powerpoint',
+        '.zip': 'application/zip', '.rar': 'application/x-rar-compressed',
+    };
+    return map[ext] || 'application/octet-stream';
+}
+
+/**
+ * Send a single message with a timeout to prevent hanging forever.
+ * Works with Baileys sock.sendMessage() API.
+ */
+function sendWithTimeout(sock, jid, content, options) {
     return Promise.race([
-        client.sendMessage(chatId, content, sendOptions),
+        sock.sendMessage(jid, content, options || {}),
         new Promise((_, reject) =>
             setTimeout(() => reject(new Error('Message send timed out after 30s')), SEND_TIMEOUT_MS)
         ),
     ]);
+}
+
+/**
+ * Build a Baileys media message payload from a loaded media object.
+ */
+function buildMediaPayload(media, caption) {
+    if (media.mimetype.startsWith('image/')) {
+        return { image: media.buffer, caption: caption || undefined };
+    } else if (media.mimetype.startsWith('video/')) {
+        return { video: media.buffer, caption: caption || undefined };
+    } else if (media.mimetype.startsWith('audio/')) {
+        return { audio: media.buffer, mimetype: media.mimetype };
+    } else {
+        // Document (PDF, DOC, etc.)
+        return {
+            document: media.buffer,
+            mimetype: media.mimetype,
+            fileName: media.filename,
+            caption: caption || undefined,
+        };
+    }
 }
 
 /**
@@ -55,8 +97,8 @@ async function sendBulk(sessionId, contacts, template, options = {}) {
     const campaignId = options.campaignId || null;
     console.log('[BulkSender] Starting campaign:', { sessionId, contactsCount: contacts.length, hasButtons: !!options.buttons, retryOfCampaign: campaignId });
 
-    const client = sessionManager.getClient(sessionId);
-    if (!client) {
+    const sock = sessionManager.getClient(sessionId);
+    if (!sock) {
         console.error('[BulkSender] Client not found for session:', sessionId);
         throw new Error('Session not found or not connected');
     }
@@ -69,13 +111,17 @@ async function sendBulk(sessionId, contacts, template, options = {}) {
     const buttonsData = options.buttons || null;
     const campaignName = options.name || null;
 
-    // Prepare media files (multiple or single for backward compat)
+    // Prepare media files (read into buffers)
     const mediaList = [];
     if (mediaPaths && mediaPaths.length > 0) {
         for (const mp of mediaPaths) {
             if (mp && fs.existsSync(mp)) {
                 try {
-                    mediaList.push(MessageMedia.fromFilePath(mp));
+                    mediaList.push({
+                        buffer: fs.readFileSync(mp),
+                        mimetype: getMimetype(mp),
+                        filename: path.basename(mp),
+                    });
                 } catch (err) {
                     console.error('[BulkSender] Failed to load media:', mp, err.message);
                 }
@@ -83,7 +129,11 @@ async function sendBulk(sessionId, contacts, template, options = {}) {
         }
     } else if (mediaPath && fs.existsSync(mediaPath)) {
         try {
-            mediaList.push(MessageMedia.fromFilePath(mediaPath));
+            mediaList.push({
+                buffer: fs.readFileSync(mediaPath),
+                mimetype: getMimetype(mediaPath),
+                filename: path.basename(mediaPath),
+            });
         } catch (err) {
             console.error('[BulkSender] Failed to load media:', err.message);
         }
@@ -109,8 +159,8 @@ async function sendBulk(sessionId, contacts, template, options = {}) {
             console.log(`[BulkSender] Processing contact ${i + 1}/${contacts.length}: ${contact.phone}`);
 
             // Re-check session is still connected before each send
-            const currentClient = sessionManager.getClient(sessionId);
-            if (!currentClient) {
+            const currentSock = sessionManager.getClient(sessionId);
+            if (!currentSock) {
                 const errMsg = 'Session disconnected during campaign';
                 console.error(`[BulkSender] ${errMsg}`);
                 // Mark all remaining contacts as failed
@@ -133,31 +183,50 @@ async function sendBulk(sessionId, contacts, template, options = {}) {
 
             let message = renderTemplate(template, contact);
             const phoneStr = String(contact.phone).trim();
-            // Remove spaces, parens, and standard visual separators but preserve @g.us / @c.us formats.
-            // If they provided a raw group ID (without @g.us), it might break if they format personal numbers with hyphens,
-            // so we rely on the backend/UI preserving @g.us or the user including it in CSV for groups.
+            // Clean phone number — preserve @g.us/@s.whatsapp.net if already present
             const phone = phoneStr.replace(/[^\d@\.\-a-zA-Z\+]/gi, '');
-            const chatId = phone.includes('@') ? phone : `${phone.replace(/[\-\+]/g, '')}@c.us`;
+
+            // Construct JID — use @s.whatsapp.net for individuals (Baileys format)
+            let chatId;
+            if (phone.includes('@')) {
+                chatId = phone; // Already has @g.us or @s.whatsapp.net
+            } else {
+                chatId = `${phone.replace(/[\-\+]/g, '')}@s.whatsapp.net`;
+            }
 
             try {
-                // ─── Construct Message Payload ───
+                // ─── Construct & Send Message ───
                 if (mediaList.length > 0) {
                     // First media gets the message as caption
-                    await sendWithTimeout(currentClient, chatId, mediaList[0], { caption: message });
-                    // Additional media sent standalone
+                    const firstPayload = buildMediaPayload(mediaList[0], message);
+                    await sendWithTimeout(currentSock, chatId, firstPayload);
+
+                    // Additional media sent standalone (no caption)
                     for (let mi = 1; mi < mediaList.length; mi++) {
-                        await sendWithTimeout(currentClient, chatId, mediaList[mi], {});
+                        const extraPayload = buildMediaPayload(mediaList[mi], null);
+                        await sendWithTimeout(currentSock, chatId, extraPayload);
                     }
                 } else {
                     // Text-only message
-                    await sendWithTimeout(currentClient, chatId, message, {});
+                    await sendWithTimeout(currentSock, chatId, { text: message });
                 }
 
                 // Send interactive Poll as clickable buttons (if configured)
                 if (buttonsData && buttonsData.length > 0) {
                     const pollOptions = buttonsData.map(b => b.label || b.body || 'Option');
-                    const poll = new Poll('Choose an option:', pollOptions);
-                    await sendWithTimeout(currentClient, chatId, poll, {});
+                    const pollPayload = {
+                        poll: {
+                            name: 'Choose an option:',
+                            values: pollOptions,
+                            selectableCount: 1,
+                        },
+                    };
+                    const sentPoll = await sendWithTimeout(currentSock, chatId, pollPayload);
+
+                    // Store the sent poll for vote decoding later
+                    if (sentPoll?.key?.id && sentPoll?.message) {
+                        sessionManager.storePollMessage(chatId, sentPoll.key.id, sentPoll.message);
+                    }
                 }
 
                 messagesDb.add(sessionId, contact.phone, 'out', message, 'sent');

@@ -54,7 +54,14 @@ export function Sessions() {
 
     const fetchSessions = async () => {
         setLoading(true);
-        try { setSessions(await getSessions()); }
+        try {
+            const list = await getSessions();
+            setSessions(list);
+            if (activeQrSession.current) {
+                const active = list.find((s: any) => s.id === activeQrSession.current);
+                if (active && active.qr) setQrCodeDataUrl(active.qr);
+            }
+        }
         catch { toast.error('Failed to load sessions'); }
         finally { setLoading(false); }
     };
@@ -65,12 +72,12 @@ export function Sessions() {
             const res = await addSession(newSessionName);
             setNewSessionName(''); setIsAddModalOpen(false);
             activeQrSession.current = res.sessionId;
-            setQrCodeDataUrl(null); setQrModalOpen(true);
+            setQrCodeDataUrl(res.qr || null); setQrModalOpen(true);
             fetchSessions();
         } catch (e: any) { toast.error(e.response?.data?.error || 'Failed to create session'); }
     };
 
-    const handleRelink = async (id: string) => { try { await relinkSession(id); activeQrSession.current = id; setQrCodeDataUrl(null); setQrModalOpen(true); } catch { toast.error('Failed to relink'); } };
+    const handleRelink = async (id: string) => { try { const res: any = await relinkSession(id); activeQrSession.current = id; setQrCodeDataUrl(res?.qr || null); setQrModalOpen(true); fetchSessions(); } catch { toast.error('Failed to relink'); } };
     const handleRestart = async (id: string) => { try { await restartSession(id); toast.success('Restart initiated'); } catch { toast.error('Failed to restart'); } };
     const handleDelete = async (id: string) => { if (!confirm('Delete this session?')) return; try { await deleteSession(id); toast.success('Deleted'); fetchSessions(); } catch { toast.error('Failed to delete'); } };
 

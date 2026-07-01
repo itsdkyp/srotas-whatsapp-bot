@@ -16,6 +16,10 @@ if (process.argv.includes('--run-server')) {
 let mainWindow;
 let serverProcess;
 
+// Reduce Electron's own Chromium memory footprint
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256');
+app.commandLine.appendSwitch('disable-software-rasterizer');
+
 // Acquire single instance lock early
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -100,7 +104,8 @@ function startServer() {
     const childEnv = Object.assign({}, process.env, {
         APP_USER_DATA_PATH: userDataPath,
         PORT: '0',
-        PACKAGED_ELECTRON: app.isPackaged ? 'true' : ''
+        PACKAGED_ELECTRON: app.isPackaged ? 'true' : '',
+        NODE_OPTIONS: '--max-old-space-size=256',
     });
     delete childEnv.ELECTRON_RUN_AS_NODE;
 

@@ -1,20 +1,41 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const makeWASocket = require('@whiskeysockets/baileys').default;
+const {
+    useMultiFileAuthState,
+    DisconnectReason,
+    makeCacheableSignalKeyStore,
+    fetchLatestBaileysVersion,
+    getAggregateVotesInPollMessage,
+    Browsers,
+} = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode');
+const pino = require('pino');
 const { randomUUID } = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { sessions: sessionDb } = require('../db/database');
+const { sessions: sessionDb, messages: messagesDb, db: rawDb } = require('../db/database');
 
-// In-memory map of active WhatsApp clients
-const clients = new Map();          // sessionId → Client
-const sessionStates = new Map();    // sessionId → { status, qr }
+// ═══════════════════════════════════════
+// In-memory state
+// ═══════════════════════════════════════
+
+const clients = new Map();            // sessionId → Baileys socket
+const sessionStates = new Map();      // sessionId → { status, qr }
+const contactStores = new Map();      // sessionId → Map<phone, { phone, name }>
+const pollMessageStore = new Map();   // msgKey → poll message (for vote decoding)
 
 let io = null; // Socket.IO instance — set via init()
+
+// Quiet logger for Baileys internals (reduce noise)
+const baileysLogger = pino({ level: 'silent' });
+
+// ═══════════════════════════════════════
+// Initialization
+// ═══════════════════════════════════════
 
 function init(socketIO) {
     io = socketIO;
 
-    // Restore persisted sessions on startup with a stagger to prevent massive CPU spikes
+    // Restore persisted sessions on startup with a stagger
     const saved = sessionDb.getAll();
     let startupDelayMs = 0;
     for (const s of saved) {
@@ -22,274 +43,339 @@ function init(socketIO) {
             setTimeout(() => {
                 createClient(s.id, s.name);
             }, startupDelayMs);
-            startupDelayMs += 3500; // Stagger each additional session by 3.5 seconds
+            startupDelayMs += 2000; // Baileys is fast — shorter stagger than Chromium
         }
     }
+}
+
+// ═══════════════════════════════════════
+// Auth directory helpers
+// ═══════════════════════════════════════
+
+function getAuthDir(sessionId) {
+    return process.env.APP_USER_DATA_PATH
+        ? path.join(process.env.APP_USER_DATA_PATH, '.wwebjs_auth', `session-${sessionId}`)
+        : path.join(__dirname, '..', '..', '.wwebjs_auth', `session-${sessionId}`);
+}
+
+// ═══════════════════════════════════════
+// Extract text from Baileys message
+// ═══════════════════════════════════════
+
+function extractMessageText(msg) {
+    const m = msg.message;
+    if (!m) return null;
+
+    return m.conversation
+        || m.extendedTextMessage?.text
+        || m.imageMessage?.caption
+        || m.videoMessage?.caption
+        || m.documentMessage?.caption
+        || m.buttonsResponseMessage?.selectedButtonId
+        || m.listResponseMessage?.singleSelectReply?.selectedRowId
+        || (m.stickerMessage ? '[Sticker]' : null)
+        || (m.imageMessage && !m.imageMessage.caption ? '[Image]' : null)
+        || (m.videoMessage && !m.videoMessage.caption ? '[Video]' : null)
+        || (m.audioMessage ? '[Audio]' : null)
+        || (m.documentMessage && !m.documentMessage.caption ? '[Document]' : null)
+        || (m.contactMessage ? '[Contact]' : null)
+        || (m.locationMessage ? '[Location]' : null)
+        || null;
 }
 
 /**
- * Kill any stale Puppeteer SingletonLock for a session so re-init can proceed.
+ * Determine message type from Baileys message object.
  */
-function cleanStaleLocks(sessionId) {
-    const authDir = process.env.APP_USER_DATA_PATH
-        ? path.join(process.env.APP_USER_DATA_PATH, '.wwebjs_auth', `session-${sessionId}`)
-        : path.join(__dirname, '..', '..', '.wwebjs_auth', `session-${sessionId}`);
-    if (!fs.existsSync(authDir)) return;
-
-    const lockFiles = ['SingletonLock', 'SingletonSocket', 'SingletonCookie'];
-    for (const lock of lockFiles) {
-        const lockPath = path.join(authDir, lock);
-        try {
-            if (fs.existsSync(lockPath)) {
-                fs.unlinkSync(lockPath);
-                console.log(`[Session ${sessionId}] Removed stale lock: ${lock}`);
-            }
-        } catch (e) {
-            // Ignore — best effort
-        }
-    }
+function getMessageType(msg) {
+    const m = msg.message;
+    if (!m) return 'unknown';
+    if (m.stickerMessage) return 'sticker';
+    if (m.imageMessage) return 'image';
+    if (m.videoMessage) return 'video';
+    if (m.audioMessage) return 'audio';
+    if (m.documentMessage) return 'document';
+    if (m.contactMessage) return 'contact';
+    if (m.locationMessage) return 'location';
+    if (m.pollCreationMessage || m.pollCreationMessageV3) return 'poll';
+    return 'text';
 }
 
-function createClient(sessionId, name, retryCount = 0) {
-    // Clean stale locks before (re)initializing
-    cleanStaleLocks(sessionId);
+/**
+ * Check if a Baileys message contains downloadable media.
+ */
+function hasMedia(msg) {
+    const m = msg.message;
+    if (!m) return false;
+    return !!(m.imageMessage || m.videoMessage || m.audioMessage || m.documentMessage || m.stickerMessage);
+}
 
-    let executablePath = undefined;
-    const isWindows = process.platform === 'win32';
+// ═══════════════════════════════════════
+// Create & manage Baileys sessions
+// ═══════════════════════════════════════
 
-    // In packaged Electron, Puppeteer can't use its own bundled Chromium.
-    // Find the system Chrome/Edge install instead.
-    if (process.env.ELECTRON_RUN_AS_NODE || process.env.PACKAGED_ELECTRON) {
-        try {
-            const chromePaths = require('chrome-paths');
-            // chrome-paths can return null — keep executablePath as undefined if nothing found
-            executablePath = chromePaths.chrome || chromePaths.chromium || undefined;
-        } catch (err) { /* ignore */ }
+async function createClient(sessionId, name, retryCount = 0) {
+    const authDir = getAuthDir(sessionId);
+    if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
 
-        // Fallback: manually check common install locations if still not found
-        if (!executablePath) {
-            let candidates = [];
-            if (isWindows) {
-                candidates = [
-                    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-                    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-                    path.join(process.env.LOCALAPPDATA || '', 'Google\\Chrome\\Application\\chrome.exe'),
-                    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-                    path.join(process.env.PROGRAMFILES || '', 'Microsoft\\Edge\\Application\\msedge.exe'),
-                ];
-            } else if (process.platform === 'darwin') {
-                candidates = [
-                    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-                    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
-                    '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'
-                ];
-            } else if (process.platform === 'linux') {
-                candidates = [
-                    '/usr/bin/google-chrome',
-                    '/usr/bin/chromium-browser',
-                    '/usr/bin/chromium'
-                ];
-            }
+    const { state, saveCreds } = await useMultiFileAuthState(authDir);
+    const { version } = await fetchLatestBaileysVersion();
 
-            for (const candidate of candidates) {
-                if (candidate && fs.existsSync(candidate)) {
-                    executablePath = candidate;
-                    break;
-                }
-            }
-        }
-
-        console.log(`[Session ${sessionId}] Electron mode — Chrome path: ${executablePath || 'puppeteer default'}`);
+    // Initialize per-session contact store
+    if (!contactStores.has(sessionId)) {
+        contactStores.set(sessionId, new Map());
     }
 
-    const authStrategy = new LocalAuth({
-        clientId: sessionId,
-        dataPath: process.env.APP_USER_DATA_PATH
-            ? path.join(process.env.APP_USER_DATA_PATH, '.wwebjs_auth')
-            : undefined
-    });
-
-    // Base args (Linux/Docker-safe and performance-optimized)
-    const puppeteerArgs = [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--disable-gpu',
-        '--disable-background-timer-throttling',
-        '--disable-backgrounding-occluded-windows',
-        '--disable-renderer-backgrounding',
-        '--disable-extensions',
-        '--disable-default-apps',
-        '--mute-audio',
-        '--disable-crash-reporter',
-        '--disable-software-rasterizer',
-        '--js-flags="--max-old-space-size=512"'
-    ];
-
-    // --single-process and --no-zygote only work reliably on Linux
-    if (process.platform === 'linux') {
-        puppeteerArgs.push('--no-zygote', '--single-process');
-    }
-
-    const client = new Client({
-        authStrategy,
-        puppeteer: {
-            executablePath,
-            headless: true,
-            args: [...puppeteerArgs, '--disable-extensions'],
-            timeout: 60000,
+    const sock = makeWASocket({
+        version,
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, baileysLogger),
         },
-        webVersionCache: {
-            type: 'local',
-        }
+        logger: baileysLogger,
+        printQRInTerminal: false,
+        browser: Browsers.ubuntu('Srotas Bot'),
+        connectTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 60000,
+        generateHighQualityLinkPreview: false,
+        markOnlineOnConnect: true,
+        syncFullHistory: true,
     });
 
     sessionStates.set(sessionId, { status: 'initializing', qr: null });
     if (io) io.emit('session:status', { sessionId, status: 'initializing' });
 
-    client.on('qr', async (qr) => {
-        const qrDataUrl = await qrcode.toDataURL(qr, { width: 300 });
-        sessionStates.set(sessionId, { status: 'qr_pending', qr: qrDataUrl });
-        sessionDb.updateStatus(sessionId, 'qr_pending');
-        if (io) io.emit('session:qr', { sessionId, qr: qrDataUrl });
-    });
+    // ─── Save credentials on update ───
+    sock.ev.on('creds.update', saveCreds);
 
-    client.on('ready', async () => {
-        const info = client.info;
-        const phone = info?.wid?.user || '';
-        sessionStates.set(sessionId, { status: 'ready', qr: null });
-        sessionDb.updateStatus(sessionId, 'ready');
-        sessionDb.updatePhone(sessionId, phone);
-        if (io) io.emit('session:ready', { sessionId, phone });
-        console.log(`[Session ${name}] Connected — phone: ${phone}`);
-    });
+    // ─── Connection updates (QR, connected, disconnected) ───
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
 
-    client.on('authenticated', () => {
-        console.log(`[Session ${name}] Authenticated`);
-    });
-
-    client.on('auth_failure', (msg) => {
-        sessionStates.set(sessionId, { status: 'auth_failure', qr: null });
-        sessionDb.updateStatus(sessionId, 'auth_failure');
-        if (io) io.emit('session:auth_failure', { sessionId, error: msg });
-        console.error(`[Session ${name}] Auth failure:`, msg);
-    });
-
-    client.on('disconnected', (reason) => {
-        sessionStates.set(sessionId, { status: 'disconnected', qr: null });
-        sessionDb.updateStatus(sessionId, 'disconnected');
-        if (io) io.emit('session:disconnected', { sessionId, reason });
-        console.log(`[Session ${name}] Disconnected:`, reason);
-    });
-
-    clients.set(sessionId, client);
-
-    // Initialize with a timeout so it doesn't hang forever
-    const initTimeout = setTimeout(() => {
-        const state = sessionStates.get(sessionId);
-        if (state && state.status === 'initializing') {
-            console.error(`[Session ${name}] Initialization timed out after 90s`);
-            sessionStates.set(sessionId, { status: 'error', qr: null });
-            sessionDb.updateStatus(sessionId, 'error');
-            if (io) io.emit('session:error', { sessionId, error: 'Initialization timed out' });
+        if (qr) {
+            const qrDataUrl = await qrcode.toDataURL(qr, { width: 300 });
+            sessionStates.set(sessionId, { status: 'qr_pending', qr: qrDataUrl });
+            sessionDb.updateStatus(sessionId, 'qr_pending');
+            if (io) io.emit('session:qr', { sessionId, qr: qrDataUrl });
         }
-    }, 90000);
 
-    client.initialize().then(() => {
-        clearTimeout(initTimeout);
-    }).catch((err) => {
-        clearTimeout(initTimeout);
-        console.error(`[Session ${name}] Init error:`, err.message);
+        if (connection === 'open') {
+            const phone = sock.user?.id?.split(':')[0] || sock.user?.id?.split('@')[0] || '';
+            sessionStates.set(sessionId, { status: 'ready', qr: null });
+            sessionDb.updateStatus(sessionId, 'ready');
+            sessionDb.updatePhone(sessionId, phone);
+            if (io) io.emit('session:ready', { sessionId, phone });
+            console.log(`[Session ${name}] Connected — phone: ${phone}`);
+        }
 
-        // Auto-retry once after cleaning locks
-        if (retryCount < 1) {
-            console.log(`[Session ${name}] Retrying initialization...`);
-            try { client.destroy().catch(() => { }); } catch (e) { }
+        if (connection === 'close') {
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+
             clients.delete(sessionId);
-            setTimeout(() => createClient(sessionId, name, retryCount + 1), 3000);
-            return;
-        }
 
-        sessionStates.set(sessionId, { status: 'error', qr: null });
-        sessionDb.updateStatus(sessionId, 'error');
+            if (statusCode === DisconnectReason.loggedOut) {
+                // User logged out — don't reconnect
+                sessionStates.set(sessionId, { status: 'disconnected', qr: null });
+                sessionDb.updateStatus(sessionId, 'disconnected');
+                if (io) io.emit('session:disconnected', { sessionId, reason: 'logged_out' });
+                console.log(`[Session ${name}] Logged out`);
+            } else if (statusCode === DisconnectReason.badSession) {
+                // Bad session — clear auth
+                sessionStates.set(sessionId, { status: 'auth_failure', qr: null });
+                sessionDb.updateStatus(sessionId, 'auth_failure');
+                if (io) io.emit('session:auth_failure', { sessionId, error: 'bad_session' });
+                console.error(`[Session ${name}] Auth failure — bad session`);
+            } else if (retryCount < 5) {
+                // Auto-reconnect with exponential backoff
+                const delay = Math.min(3000 * (retryCount + 1), 15000);
+                console.log(`[Session ${name}] Disconnected (code ${statusCode}), reconnecting in ${delay}ms...`);
+                sessionStates.set(sessionId, { status: 'reconnecting', qr: null });
+                if (io) io.emit('session:status', { sessionId, status: 'reconnecting' });
+                setTimeout(() => createClient(sessionId, name, retryCount + 1), delay);
+            } else {
+                sessionStates.set(sessionId, { status: 'error', qr: null });
+                sessionDb.updateStatus(sessionId, 'error');
+                if (io) io.emit('session:error', { sessionId, error: `Failed after ${retryCount} retries` });
+                console.error(`[Session ${name}] Gave up after ${retryCount} retries`);
+            }
+        }
     });
+
+    // ─── Contacts sync (build in-memory store) ───
+    sock.ev.on('contacts.upsert', (contacts) => {
+        const store = contactStores.get(sessionId) || new Map();
+        for (const c of contacts) {
+            if (!c.id) continue;
+            const phone = c.id.replace('@s.whatsapp.net', '').split(':')[0];
+            store.set(phone, {
+                phone,
+                name: c.name || c.notify || c.verifiedName || '',
+            });
+        }
+        contactStores.set(sessionId, store);
+    });
+
+    sock.ev.on('contacts.update', (updates) => {
+        const store = contactStores.get(sessionId) || new Map();
+        for (const u of updates) {
+            if (!u.id) continue;
+            const phone = u.id.replace('@s.whatsapp.net', '').split(':')[0];
+            const existing = store.get(phone) || { phone, name: '' };
+            if (u.name || u.notify || u.verifiedName) {
+                existing.name = u.name || u.notify || u.verifiedName || existing.name;
+            }
+            store.set(phone, existing);
+        }
+        contactStores.set(sessionId, store);
+    });
+
+    // ─── History sync → store messages in SQLite for AI context ───
+    sock.ev.on('messaging-history.set', ({ messages: syncedMessages }) => {
+        console.log(`[Session ${name}] Syncing ${syncedMessages.length} historical messages`);
+
+        const insertTx = rawDb.transaction(() => {
+            for (const msg of syncedMessages) {
+                try {
+                    const jid = msg.key.remoteJid;
+                    if (!jid || jid === 'status@broadcast' || jid.endsWith('@g.us')) continue;
+
+                    const phone = jid.replace('@s.whatsapp.net', '').split(':')[0];
+                    const direction = msg.key.fromMe ? 'out' : 'in';
+                    const text = extractMessageText(msg);
+                    if (!text) continue;
+
+                    messagesDb.add(sessionId, phone, direction, text, 'synced');
+                } catch (e) {
+                    // Skip malformed messages silently
+                }
+            }
+        });
+
+        try {
+            insertTx();
+        } catch (e) {
+            console.error(`[Session ${name}] History sync DB error:`, e.message);
+        }
+    });
+
+    // ─── Real-time messages → route to registered handlers ───
+    sock.ev.on('messages.upsert', ({ messages: newMessages, type }) => {
+        if (type !== 'notify') return; // Only process real-time messages
+
+        for (const msg of newMessages) {
+            for (const handler of _messageHandlers) {
+                handler(sessionId, msg, sock);
+            }
+        }
+    });
+
+    // ─── Poll vote updates → route to registered vote handlers ───
+    sock.ev.on('messages.update', (updates) => {
+        for (const { key, update } of updates) {
+            if (!update?.pollUpdates) continue;
+
+            // Decode poll votes
+            const pollMsg = pollMessageStore.get(`${key.remoteJid}:${key.id}`);
+            if (!pollMsg) continue;
+
+            try {
+                const votes = getAggregateVotesInPollMessage({
+                    message: pollMsg,
+                    pollUpdates: update.pollUpdates,
+                });
+
+                // Build a vote event similar to whatsapp-web.js format
+                for (const vote of votes) {
+                    if (!vote.voters || vote.voters.length === 0) continue;
+                    for (const voterJid of vote.voters) {
+                        const voter = voterJid.replace('@s.whatsapp.net', '').split(':')[0];
+                        const voteData = {
+                            voter: `${voter}@c.us`, // Keep @c.us format for compatibility with messageHandler
+                            selectedOptions: [{ name: vote.name }],
+                        };
+                        for (const handler of _voteHandlers) {
+                            handler(sessionId, voteData);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error(`[Session ${name}] Poll vote decode error:`, e.message);
+            }
+        }
+    });
+
+    // Store reference
+    clients.set(sessionId, sock);
 
     return sessionId;
 }
+
+// ═══════════════════════════════════════
+// Session CRUD
+// ═══════════════════════════════════════
 
 async function addSession(name) {
     const sessionId = randomUUID().slice(0, 8);
     sessionDb.create(sessionId, name);
-    createClient(sessionId, name);
+    await createClient(sessionId, name);
     return sessionId;
 }
 
 async function removeSession(sessionId) {
-    const client = clients.get(sessionId);
-    if (client) {
+    const sock = clients.get(sessionId);
+    if (sock) {
         try {
-            // Timeout destroy to avoid hanging on uninitialized sessions
-            await Promise.race([
-                client.destroy(),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('destroy timeout')), 5000))
-            ]);
+            await sock.logout();
         } catch (e) {
-            console.log(`[Session ${sessionId}] destroy: ${e.message}`);
+            console.log(`[Session ${sessionId}] logout: ${e.message}`);
+            try { sock.end(); } catch (_) { }
         }
         clients.delete(sessionId);
     }
     sessionStates.delete(sessionId);
+    contactStores.delete(sessionId);
     sessionDb.delete(sessionId);
+
+    // Clean up auth files
+    const authDir = getAuthDir(sessionId);
+    if (fs.existsSync(authDir)) {
+        fs.rmSync(authDir, { recursive: true, force: true });
+    }
 }
 
 async function restartSession(sessionId) {
     const dbSession = sessionDb.getAll().find(s => s.id === sessionId);
     if (!dbSession) throw new Error('Session not found');
 
-    // Destroy existing client if any
-    const client = clients.get(sessionId);
-    if (client) {
-        try {
-            await Promise.race([
-                client.destroy(),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('destroy timeout')), 5000))
-            ]);
-        } catch (e) {
-            console.log(`[Session ${sessionId}] destroy on restart: ${e.message}`);
+    // Close existing socket
+    const sock = clients.get(sessionId);
+    if (sock) {
+        try { sock.end(); } catch (e) {
+            console.log(`[Session ${sessionId}] end on restart: ${e.message}`);
         }
         clients.delete(sessionId);
     }
     sessionStates.delete(sessionId);
 
-    // Re-create
-    createClient(sessionId, dbSession.name);
+    // Re-create — will reconnect using saved auth keys (no new QR needed)
+    await createClient(sessionId, dbSession.name);
 }
 
 async function relinkSession(sessionId) {
     const dbSession = sessionDb.getAll().find(s => s.id === sessionId);
     if (!dbSession) throw new Error('Session not found');
 
-    // Destroy existing client
-    const client = clients.get(sessionId);
-    if (client) {
-        try {
-            await Promise.race([
-                client.destroy(),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('destroy timeout')), 5000))
-            ]);
-        } catch (e) {
-            console.log(`[Session ${sessionId}] destroy on relink: ${e.message}`);
+    // Close existing socket
+    const sock = clients.get(sessionId);
+    if (sock) {
+        try { sock.end(); } catch (e) {
+            console.log(`[Session ${sessionId}] end on relink: ${e.message}`);
         }
         clients.delete(sessionId);
     }
     sessionStates.delete(sessionId);
 
     // Clear stored auth data so a fresh QR is generated
-    const authDir = process.env.APP_USER_DATA_PATH
-        ? path.join(process.env.APP_USER_DATA_PATH, '.wwebjs_auth', `session-${sessionId}`)
-        : path.join(__dirname, '..', '..', '.wwebjs_auth', `session-${sessionId}`);
+    const authDir = getAuthDir(sessionId);
     if (fs.existsSync(authDir)) {
         fs.rmSync(authDir, { recursive: true, force: true });
         console.log(`[Session ${sessionId}] Cleared auth data for relink`);
@@ -298,95 +384,74 @@ async function relinkSession(sessionId) {
     sessionDb.updateStatus(sessionId, 'initializing');
 
     // Re-create — will trigger a fresh QR since auth is cleared
-    createClient(sessionId, dbSession.name);
+    await createClient(sessionId, dbSession.name);
 }
 
-async function getWhatsAppContacts(sessionId, retries = 3) {
-    const client = clients.get(sessionId);
-    if (!client) throw new Error('Session not found or not connected');
+// ═══════════════════════════════════════
+// WhatsApp Data Retrieval
+// ═══════════════════════════════════════
+
+async function getWhatsAppContacts(sessionId) {
+    const sock = clients.get(sessionId);
+    if (!sock) throw new Error('Session not found or not connected');
+
+    // Return contacts from in-memory store (populated by contacts.upsert events)
+    const store = contactStores.get(sessionId) || new Map();
+    return Array.from(store.values())
+        .filter(c => c.phone && c.phone.length > 4)
+        .map(c => ({
+            phone: c.phone,
+            name: c.name || '',
+            company: '',
+        }));
+}
+
+async function getWhatsAppGroups(sessionId) {
+    const sock = clients.get(sessionId);
+    if (!sock) throw new Error('Session not found or not connected');
 
     try {
-        const waContacts = await client.getContacts();
-        return waContacts
-            .filter(c => !c.isGroup && c.id && (c.isMyContact || c.name || c.pushname))
-            .map(c => ({
-                phone: c.id.user,
-                name: c.name || c.pushname || '',
-                company: '',
-            }));
+        const groups = await sock.groupFetchAllParticipating();
+        return Object.values(groups).map(g => ({
+            id: g.id,
+            name: g.subject || g.id,
+            participantCount: g.participants ? g.participants.length : 0,
+        }));
     } catch (error) {
-        if (retries > 0 && (error.message.includes('detached Frame') || error.message.includes('Execution context was destroyed'))) {
-            console.warn(`[Session ${sessionId}] Detached frame error, retrying getContacts (${retries} retries left)...`);
-            await new Promise(r => setTimeout(r, 2000));
-            return getWhatsAppContacts(sessionId, retries - 1);
-        }
+        console.error(`[Session ${sessionId}] Error fetching groups:`, error.message);
         throw error;
     }
 }
 
-async function getWhatsAppGroups(sessionId, retries = 3) {
-    const client = clients.get(sessionId);
-    if (!client) throw new Error('Session not found or not connected');
+async function getGroupParticipants(sessionId, groupId) {
+    const sock = clients.get(sessionId);
+    if (!sock) throw new Error('Session not found or not connected');
 
     try {
-        const chats = await client.getChats();
-        return chats
-            .filter(c => c.isGroup)
-            .map(c => ({
-                id: c.id._serialized,
-                name: c.name,
-                participantCount: c.participants ? c.participants.length : 0,
-            }));
-    } catch (error) {
-        if (retries > 0 && (error.message.includes('detached Frame') || error.message.includes('Execution context was destroyed'))) {
-            console.warn(`[Session ${sessionId}] Detached frame error, retrying getChats (${retries} retries left)...`);
-            await new Promise(r => setTimeout(r, 2000));
-            return getWhatsAppGroups(sessionId, retries - 1);
-        }
-        throw error;
-    }
-}
+        const metadata = await sock.groupMetadata(groupId);
+        if (!metadata || !metadata.participants) throw new Error('Group not found');
 
-async function getGroupParticipants(sessionId, groupId, retries = 3) {
-    const client = clients.get(sessionId);
-    if (!client) throw new Error('Session not found or not connected');
-
-    try {
-        const chat = await client.getChatById(groupId);
-        if (!chat || !chat.isGroup) throw new Error('Group not found');
-
-        const participants = chat.participants || [];
-        const contacts = [];
-
-        // Pre-fetch all contacts to avoid sequential network lookups which cause timeouts
-        const allContacts = await client.getContacts().catch(() => []);
-        const contactMap = new Map();
-        for (const c of allContacts) {
-            if (c.id) contactMap.set(c.id._serialized, c);
-        }
-
-        for (const p of participants) {
-            if (p.id.server === 'c.us') {
-                const contact = contactMap.get(p.id._serialized);
-                const name = contact ? (contact.pushname || contact.name || contact.shortName || p.id.user || '') : (p.id.user || '');
-                contacts.push({
-                    phone: p.id.user,
-                    name,
+        const store = contactStores.get(sessionId) || new Map();
+        return metadata.participants
+            .filter(p => p.id.endsWith('@s.whatsapp.net'))
+            .map(p => {
+                const phone = p.id.replace('@s.whatsapp.net', '').split(':')[0];
+                const contact = store.get(phone);
+                return {
+                    phone,
+                    name: contact?.name || phone,
                     company: '',
-                });
-            }
-        }
-
-        return contacts;
+                };
+            });
     } catch (error) {
-        if (retries > 0 && (error.message.includes('detached Frame') || error.message.includes('Execution context was destroyed'))) {
-            console.warn(`[Session ${sessionId}] Detached frame error, retrying getGroupParticipants (${retries} retries left)...`);
-            await new Promise(r => setTimeout(r, 2000));
-            return getGroupParticipants(sessionId, groupId, retries - 1);
-        }
+        console.error(`[Session ${sessionId}] Error fetching group participants:`, error.message);
         throw error;
     }
 }
+
+// ═══════════════════════════════════════
+// Getters & Setters
+// ═══════════════════════════════════════
 
 function getClient(sessionId) {
     return clients.get(sessionId) || null;
@@ -399,6 +464,7 @@ function listSessions() {
         return {
             ...s,
             status: live ? live.status : s.status,
+            qr: live ? live.qr : null,
             auto_reply: !!s.auto_reply,
         };
     });
@@ -412,39 +478,32 @@ function setAutoReply(sessionId, enabled) {
     sessionDb.setAutoReply(sessionId, enabled);
 }
 
-function onMessage(handler) {
-    // Attach handler to all current and future clients
-    for (const [sid, client] of clients) {
-        client.on('message', (msg) => handler(sid, msg));
-    }
-    // Store handler so new clients also get it
-    _messageHandlers.push(handler);
-}
-
-function onVote(handler) {
-    // Attach vote handler to all current and future clients
-    for (const [sid, client] of clients) {
-        client.on('vote_update', (vote) => handler(sid, vote));
-    }
-    _voteHandlers.push(handler);
-}
+// ═══════════════════════════════════════
+// Message & Vote Handlers (same pattern as before)
+// ═══════════════════════════════════════
 
 const _messageHandlers = [];
 const _voteHandlers = [];
 
-// Monkey-patch: wrap so each new client gets existing handlers
-(function patchCreateClient() {
-    const origSet = clients.set.bind(clients);
-    clients.set = function (id, client) {
-        origSet(id, client);
-        for (const h of _messageHandlers) {
-            client.on('message', (msg) => h(id, msg));
-        }
-        for (const h of _voteHandlers) {
-            client.on('vote_update', (vote) => h(id, vote));
-        }
-    };
-})();
+function onMessage(handler) {
+    _messageHandlers.push(handler);
+}
+
+function onVote(handler) {
+    _voteHandlers.push(handler);
+}
+
+/**
+ * Store a sent poll message for later vote decoding.
+ * Called by bulkSender after sending a poll.
+ */
+function storePollMessage(jid, msgId, message) {
+    pollMessageStore.set(`${jid}:${msgId}`, message);
+}
+
+// ═══════════════════════════════════════
+// Exports — same public API as before
+// ═══════════════════════════════════════
 
 module.exports = {
     init,
@@ -461,4 +520,9 @@ module.exports = {
     getGroupParticipants,
     onMessage,
     onVote,
+    storePollMessage,
+    // Utility exports for other modules
+    extractMessageText,
+    getMessageType,
+    hasMedia,
 };

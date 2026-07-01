@@ -5,6 +5,8 @@ const { settings: settingsDb } = require('../db/database');
 let geminiModel = null;
 let openaiClient = null;
 let currentGeminiModelName = null;
+let currentGeminiKey = null;
+let currentOpenAIKey = null;
 
 function getProvider() {
     return settingsDb.get('ai_provider') || process.env.AI_PROVIDER || 'gemini';
@@ -28,6 +30,7 @@ function initGemini() {
     const genAI = new GoogleGenerativeAI(key);
     geminiModel = genAI.getGenerativeModel({ model: modelName });
     currentGeminiModelName = modelName;
+    currentGeminiKey = key;
     return geminiModel;
 }
 
@@ -35,6 +38,7 @@ function initOpenAI() {
     const key = settingsDb.get('openai_api_key') || process.env.OPENAI_API_KEY;
     if (!key) return null;
     openaiClient = new OpenAI({ apiKey: key });
+    currentOpenAIKey = key;
     return openaiClient;
 }
 
@@ -50,9 +54,10 @@ async function generateReply(conversationHistory, incomingMessage, mediaData = n
 }
 
 async function generateGeminiReply(history, incoming, systemPrompt, mediaData) {
-    // Re-init if model selection changed
+    // Re-init if model selection or API key changed
     const selectedModel = settingsDb.get('ai_model') || 'gemini-3.1-pro-preview';
-    if (!geminiModel || currentGeminiModelName !== selectedModel) {
+    const currentKey = settingsDb.get('gemini_api_key') || process.env.GEMINI_API_KEY;
+    if (!geminiModel || currentGeminiModelName !== selectedModel || currentGeminiKey !== currentKey) {
         initGemini();
     }
     const model = geminiModel;
@@ -94,7 +99,11 @@ async function generateGeminiReply(history, incoming, systemPrompt, mediaData) {
 }
 
 async function generateOpenAIReply(history, incoming, systemPrompt, mediaData) {
-    const client = openaiClient || initOpenAI();
+    const currentKey = settingsDb.get('openai_api_key') || process.env.OPENAI_API_KEY;
+    if (!openaiClient || currentOpenAIKey !== currentKey) {
+        initOpenAI();
+    }
+    const client = openaiClient;
     if (!client) throw new Error('OpenAI API key not configured');
 
     const messages = [];

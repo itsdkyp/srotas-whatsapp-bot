@@ -1,11 +1,12 @@
-const XLSX = require('xlsx');
 const path = require('path');
 
 /**
  * Parse a CSV or Excel file and return standardized contact rows.
  * Auto-detects phone, name, and company columns.
+ * Note: xlsx is lazy-loaded to avoid 2.5 MB startup cost — only loaded when actually importing.
  */
 function parseFile(filePath) {
+    const XLSX = require('xlsx');
     const ext = path.extname(filePath).toLowerCase();
     const workbook = XLSX.readFile(filePath);
     const sheetName = workbook.SheetNames[0];
