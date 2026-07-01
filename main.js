@@ -8,6 +8,12 @@ const { spawn, execSync } = require('child_process');
 // This is necessary because ELECTRON_RUN_AS_NODE breaks ASAR support on Windows.
 // ════════════════════════════════════════════════
 if (process.argv.includes('--run-server')) {
+    if (!process.env.APP_USER_DATA_PATH) {
+        try {
+            const { app } = require('electron');
+            process.env.APP_USER_DATA_PATH = app.getPath('userData');
+        } catch (e) {}
+    }
     // Run the server and stop Electron from initializing the UI
     require('./server.js');
     return;
