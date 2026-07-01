@@ -80,16 +80,33 @@ jobs:
           $exe = Get-ChildItem -Path dist/*.exe | Select-Object -First 1
           Write-Host "Installing $($exe.FullName)..."
           Start-Process -FilePath $exe.FullName -ArgumentList "/S" -Wait
+          Start-Sleep -Seconds 5
           Write-Host "Installation completed."
       - name: Verify Installed Windows .exe & Test Functionality
         shell: pwsh
         run: |
-          $exeFile = Get-ChildItem -Path "$env:LOCALAPPDATA\Programs" -Filter "*Srotas*.exe" -Recurse | Select-Object -First 1
-          if (!$exeFile) {
-            $exeFile = Get-ChildItem -Path "$env:LOCALAPPDATA\Programs" -Filter "*whatsapp*.exe" -Recurse | Select-Object -First 1
+          $searchDirs = @(
+            "$env:LOCALAPPDATA\Programs",
+            "$env:ProgramFiles",
+            "${env:ProgramFiles(x86)}",
+            "$env:USERPROFILE\AppData\Local",
+            "dist\win-unpacked"
+          )
+          $exeFile = $null
+          foreach ($dir in $searchDirs) {
+            if (Test-Path $dir) {
+              $found = Get-ChildItem -Path $dir -Filter "*Srotas*.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike "*Setup*" } | Select-Object -First 1
+              if (!$found) {
+                $found = Get-ChildItem -Path $dir -Filter "*whatsapp*.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike "*Setup*" } | Select-Object -First 1
+              }
+              if ($found) {
+                $exeFile = $found
+                break
+              }
+            }
           }
           if (!$exeFile) {
-            Write-Error "Installed executable not found in $env:LOCALAPPDATA\Programs"
+            Write-Error "Executable not found in any standard installation or unpack directory."
             exit 1
           }
           Write-Host "Found installed executable: $($exeFile.FullName)"
