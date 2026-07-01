@@ -151,17 +151,21 @@ jobs:
           Write-Host "Idle Memory Consumption (Working Set): $memWsMB MB"
           Write-Host "Idle Memory Consumption (Private Memory): $memPrivateMB MB"
 
-          Write-Host "Simulating Active WhatsApp Session Creation via API..."
+          Write-Host "Simulating Multi-Account Stress Test (Creating 4 Concurrent WhatsApp Sessions via API)..."
           $headers = @{ "Content-Type" = "application/json" }
-          $body = '{"name":"benchmark-session"}'
-          try {
-            Invoke-WebRequest -Uri "http://localhost:3005/api/sessions" -Method POST -Headers $headers -Body $body -UseBasicParsing | Out-Null
-          } catch {
-            Write-Host "Session creation responded: $_"
+          for ($s = 1; $s -le 4; $s++) {
+            $body = '{"name":"benchmark-session-' + $s + '"}'
+            try {
+              Write-Host "Creating session $s..."
+              Invoke-WebRequest -Uri "http://localhost:3005/api/sessions" -Method POST -Headers $headers -Body $body -UseBasicParsing | Out-Null
+              Start-Sleep -Seconds 2
+            } catch {
+              Write-Host "Session creation responded: $_"
+            }
           }
           
-          Write-Host "Waiting 12 seconds for active session engine (e.g. Baileys socket / Chromium headless browser) to initialize..."
-          Start-Sleep -Seconds 12
+          Write-Host "Waiting 15 seconds for all 4 session engines (e.g. 4x Baileys sockets vs 4x heavy Chromium headless browsers) to initialize..."
+          Start-Sleep -Seconds 15
           
           # Measure active memory consumption of entire process tree including spawned Chromium browsers
           $activeProcs = Get-Process | Where-Object { $_.ProcessName -like "*Srotas*" -or $_.ProcessName -like "*chrome*" -or $_.Id -eq $proc.Id }
@@ -172,16 +176,16 @@ jobs:
           $diffWsMB = [Math]::Round($activeWsMB - $memWsMB, 2)
           $diffPrivateMB = [Math]::Round($activePrivateMB - $memPrivateMB, 2)
           
-          Write-Host "Active Session Memory (Working Set): $activeWsMB MB (+$diffWsMB MB)"
-          Write-Host "Active Session Memory (Private): $activePrivateMB MB (+$diffPrivateMB MB)"
+          Write-Host "Multi-Account (4 Sessions) Memory (Working Set): $activeWsMB MB (+$diffWsMB MB)"
+          Write-Host "Multi-Account (4 Sessions) Memory (Private): $activePrivateMB MB (+$diffPrivateMB MB)"
           
           # Append benchmark metrics to GitHub Step Summary
-          "### ⚡ Windows Installed .exe Performance Benchmark (Idle vs Active Session)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "| Metric | Idle Startup | Active Session (1 Account) | Change |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "| :--- | :--- | :--- | :--- |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "| **Working Set RAM** | **$memWsMB MB** | **$activeWsMB MB** | **+$diffWsMB MB** |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "| **Private Memory** | **$memPrivateMB MB** | **$activePrivateMB MB** | **+$diffPrivateMB MB** |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "| **Startup Time** | **$startupTimeMs ms** ($([Math]::Round($startupTimeMs/1000, 2))s) | N/A | N/A |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "### ⚡ Windows Installed .exe Stress Test Benchmark (4 Concurrent Accounts)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| Metric | Idle Startup | 4 Active Sessions | Total Delta | Average RAM / Account |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| :--- | :--- | :--- | :--- | :--- |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| **Working Set RAM** | **$memWsMB MB** | **$activeWsMB MB** | **+$diffWsMB MB** | **+$([Math]::Round($diffWsMB / 4, 2)) MB** |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| **Private Memory** | **$memPrivateMB MB** | **$activePrivateMB MB** | **+$diffPrivateMB MB** | **+$([Math]::Round($diffPrivateMB / 4, 2)) MB** |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| **Startup Time** | **$startupTimeMs ms** ($([Math]::Round($startupTimeMs/1000, 2))s) | N/A | N/A | N/A |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           
           Write-Host "Testing Dashboard / API Health Route..."
           $healthResp = Invoke-WebRequest -Uri "http://localhost:3005/api/settings" -UseBasicParsing
