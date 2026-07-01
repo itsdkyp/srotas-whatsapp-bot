@@ -141,34 +141,58 @@ jobs:
           $startupTimeMs = $stopwatch.ElapsedMilliseconds
           Write-Host "Server started and ready in $startupTimeMs ms ($([Math]::Round($startupTimeMs/1000, 2)) s)!"
           
-          # Measure memory consumption of process tree
+          # Measure idle memory consumption of process tree
           $procs = Get-Process | Where-Object { $_.ProcessName -like "*Srotas*" -or $_.Id -eq $proc.Id }
           $totalWsBytes = ($procs | Measure-Object WorkingSet64 -Sum).Sum
           $totalPrivateBytes = ($procs | Measure-Object PrivateMemorySize64 -Sum).Sum
           $memWsMB = [Math]::Round($totalWsBytes / 1MB, 2)
           $memPrivateMB = [Math]::Round($totalPrivateBytes / 1MB, 2)
           
-          Write-Host "Memory Consumption (Working Set): $memWsMB MB"
-          Write-Host "Memory Consumption (Private Memory): $memPrivateMB MB"
+          Write-Host "Idle Memory Consumption (Working Set): $memWsMB MB"
+          Write-Host "Idle Memory Consumption (Private Memory): $memPrivateMB MB"
+
+          Write-Host "Simulating Active WhatsApp Session Creation via API..."
+          $headers = @{ "Content-Type" = "application/json" }
+          $body = '{"name":"benchmark-session"}'
+          try {
+            Invoke-WebRequest -Uri "http://localhost:3005/api/sessions" -Method POST -Headers $headers -Body $body -UseBasicParsing | Out-Null
+          } catch {
+            Write-Host "Session creation responded: $_"
+          }
+          
+          Write-Host "Waiting 12 seconds for active session engine (e.g. Baileys socket / Chromium headless browser) to initialize..."
+          Start-Sleep -Seconds 12
+          
+          # Measure active memory consumption of entire process tree including spawned Chromium browsers
+          $activeProcs = Get-Process | Where-Object { $_.ProcessName -like "*Srotas*" -or $_.ProcessName -like "*chrome*" -or $_.Id -eq $proc.Id }
+          $activeWsBytes = ($activeProcs | Measure-Object WorkingSet64 -Sum).Sum
+          $activePrivateBytes = ($activeProcs | Measure-Object PrivateMemorySize64 -Sum).Sum
+          $activeWsMB = [Math]::Round($activeWsBytes / 1MB, 2)
+          $activePrivateMB = [Math]::Round($activePrivateBytes / 1MB, 2)
+          $diffWsMB = [Math]::Round($activeWsMB - $memWsMB, 2)
+          $diffPrivateMB = [Math]::Round($activePrivateMB - $memPrivateMB, 2)
+          
+          Write-Host "Active Session Memory (Working Set): $activeWsMB MB (+$diffWsMB MB)"
+          Write-Host "Active Session Memory (Private): $activePrivateMB MB (+$diffPrivateMB MB)"
           
           # Append benchmark metrics to GitHub Step Summary
-          "### ⚡ Windows Installed .exe Performance Benchmark" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "| Metric | Result |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "| :--- | :--- |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "| **Startup Time to API Ready** | **$startupTimeMs ms** ($([Math]::Round($startupTimeMs/1000, 2))s) |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "| **Memory Footprint (Working Set)** | **$memWsMB MB** |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          "| **Memory Footprint (Private Set)** | **$memPrivateMB MB** |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "### ⚡ Windows Installed .exe Performance Benchmark (Idle vs Active Session)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| Metric | Idle Startup | Active Session (1 Account) | Change |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| :--- | :--- | :--- | :--- |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| **Working Set RAM** | **$memWsMB MB** | **$activeWsMB MB** | **+$diffWsMB MB** |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| **Private Memory** | **$memPrivateMB MB** | **$activePrivateMB MB** | **+$diffPrivateMB MB** |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "| **Startup Time** | **$startupTimeMs ms** ($([Math]::Round($startupTimeMs/1000, 2))s) | N/A | N/A |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           
-          Write-Host "Testing SPA Dashboard Route (/settings)..."
-          $spaResp = Invoke-WebRequest -Uri "http://localhost:3005/settings" -UseBasicParsing
-          if ($spaResp.StatusCode -ne 200) {
-            Write-Error "SPA route returned status $($spaResp.StatusCode)"
+          Write-Host "Testing Dashboard / API Health Route..."
+          $healthResp = Invoke-WebRequest -Uri "http://localhost:3005/api/settings" -UseBasicParsing
+          if ($healthResp.StatusCode -ne 200) {
+            Write-Error "Health check route returned status $($healthResp.StatusCode)"
             Stop-Process -Id $proc.Id -Force
             exit 1
           }
           
           Write-Host "All functionality tests passed against installed Windows .exe!"
-          Stop-Process -Id $proc.Id -Force
+          Get-Process | Where-Object { $_.ProcessName -like "*Srotas*" -or $_.ProcessName -like "*chrome*" -or $_.Id -eq $proc.Id } | Stop-Process -Force -ErrorAction SilentlyContinue
       - name: Upload Windows Installer (.exe) Artifact
         uses: actions/upload-artifact@v4
         with:
