@@ -95,12 +95,13 @@ jobs:
           Write-Host "Found installed executable: $($exeFile.FullName)"
           Write-Host "Starting installed app server: $($exeFile.FullName) --run-server"
           $env:PORT = "3005"
+          $env:APP_USER_DATA_PATH = "$env:LOCALAPPDATA\SrotasWhatsAppBotData"
           $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-          $proc = Start-Process -FilePath $exeFile.FullName -ArgumentList "--run-server" -PassThru
+          $proc = Start-Process -FilePath $exeFile.FullName -ArgumentList "--run-server" -PassThru -RedirectStandardOutput "server-out.log" -RedirectStandardError "server-err.log"
           
-          Write-Host "Waiting for server on port 3005..."
+          Write-Host "Waiting up to 60s for server on port 3005..."
           $ready = $false
-          for ($i = 0; $i -lt 120; $i++) {
+          for ($i = 0; $i -lt 240; $i++) {
             Start-Sleep -Milliseconds 250
             try {
               $resp = Invoke-WebRequest -Uri "http://localhost:3005/api/settings" -UseBasicParsing
@@ -113,7 +114,9 @@ jobs:
           }
           
           if (!$ready) {
-            Write-Error "Installed application failed to respond on API within 30 seconds."
+            Write-Error "Installed application failed to respond on API within 60 seconds."
+            if (Test-Path "server-out.log") { Write-Host "=== STDOUT LOG ==="; Get-Content "server-out.log" }
+            if (Test-Path "server-err.log") { Write-Host "=== STDERR LOG ==="; Get-Content "server-err.log" }
             if ($proc -and !$proc.HasExited) { Stop-Process -Id $proc.Id -Force }
             exit 1
           }
