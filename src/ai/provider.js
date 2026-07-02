@@ -7,6 +7,12 @@ let openaiClient = null;
 let currentGeminiModelName = null;
 let currentGeminiKey = null;
 let currentOpenAIKey = null;
+let _aiConfigDirty = true; // Force re-init on first call
+
+// Called from PUT /api/settings to invalidate cached AI config
+function refreshAIConfig() {
+    _aiConfigDirty = true;
+}
 
 function getProvider() {
     return settingsDb.get('ai_provider') || process.env.AI_PROVIDER || 'gemini';
@@ -54,11 +60,10 @@ async function generateReply(conversationHistory, incomingMessage, mediaData = n
 }
 
 async function generateGeminiReply(history, incoming, systemPrompt, mediaData) {
-    // Re-init if model selection or API key changed
-    const selectedModel = settingsDb.get('ai_model') || 'gemini-3.1-pro-preview';
-    const currentKey = settingsDb.get('gemini_api_key') || process.env.GEMINI_API_KEY;
-    if (!geminiModel || currentGeminiModelName !== selectedModel || currentGeminiKey !== currentKey) {
+    // Re-init only when settings have been changed
+    if (_aiConfigDirty || !geminiModel) {
         initGemini();
+        _aiConfigDirty = false;
     }
     const model = geminiModel;
     if (!model) throw new Error('Gemini API key not configured');
@@ -99,9 +104,9 @@ async function generateGeminiReply(history, incoming, systemPrompt, mediaData) {
 }
 
 async function generateOpenAIReply(history, incoming, systemPrompt, mediaData) {
-    const currentKey = settingsDb.get('openai_api_key') || process.env.OPENAI_API_KEY;
-    if (!openaiClient || currentOpenAIKey !== currentKey) {
+    if (_aiConfigDirty || !openaiClient) {
         initOpenAI();
+        _aiConfigDirty = false;
     }
     const client = openaiClient;
     if (!client) throw new Error('OpenAI API key not configured');
@@ -142,4 +147,4 @@ async function generateOpenAIReply(history, incoming, systemPrompt, mediaData) {
     return completion.choices[0].message.content;
 }
 
-module.exports = { generateReply, getProvider, getSystemPrompt };
+module.exports = { generateReply, getProvider, getSystemPrompt, refreshAIConfig };

@@ -13,16 +13,25 @@ const bulkSender = require('./src/messaging/bulkSender');
 const scheduler = require('./src/messaging/scheduler');
 const importer = require('./src/contacts/importer');
 const license = require('./src/license');
-const { sessions: sessionsDb, contacts: contactsDb, groups: groupsDb, campaigns: campaignsDb, settings: settingsDb, messages: messagesDb, quickReplies: quickRepliesDb, templates: templatesDb, autoReplyLogs } = require('./src/db/database');
+const { db, sessions: sessionsDb, contacts: contactsDb, groups: groupsDb, campaigns: campaignsDb, settings: settingsDb, messages: messagesDb, quickReplies: quickRepliesDb, templates: templatesDb, autoReplyLogs } = require('./src/db/database');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
+    cors: { origin: '*' },
     pingTimeout: 60000,
     pingInterval: 25000,
     maxHttpBufferSize: 1e6,       // 1 MB max payload (default is 100 MB)
     perMessageDeflate: false,     // Disable compression to save CPU
     httpCompression: false,
+});
+
+// Fix #23: Validate numeric :id parameter on non-session API endpoints
+app.param('id', (req, res, next, id) => {
+    if (!req.path.startsWith('/api/sessions/') && isNaN(parseInt(id, 10))) {
+        return res.status(400).json({ error: 'Invalid ID format — numeric ID required' });
+    }
+    next();
 });
 
 const pkg = require('./package.json');
@@ -346,8 +355,14 @@ app.get('/api/contacts/export-csv', (req, res) => {
     const rows = contactsDb.getAll(group === 'all' ? undefined : group);
 
     let csv = 'phone,name,company,group_name\n';
+    const escapeCsv = (val) => {
+        if (val === null || val === undefined) return '""';
+        let str = String(val);
+        if (/^[=+\-@]/.test(str)) str = "'" + str; // Fix #7: Prevent formula injection
+        return `"${str.replace(/"/g, '""')}"`;
+    };
     for (const c of rows) {
-        csv += `${c.phone || ''},${c.name || ''},${c.company || ''},${c.group_name || ''}\n`;
+        csv += `${escapeCsv(c.phone)},${escapeCsv(c.name)},${escapeCsv(c.company)},${escapeCsv(c.group_name)}\n`;
     }
 
     res.header('Content-Type', 'text/csv');
@@ -850,21 +865,18 @@ app.get('/api/analytics', (req, res) => {
         const totalMessages = totalSent + totalFailed;
         const deliveryRate = totalMessages > 0 ? Math.round((totalSent / totalMessages) * 100) : 0;
 
-        // Count unique contacts reached (from sent messages)
-        const uniqueContacts = new Set();
-        filteredCampaigns.forEach(c => {
-            if (c.group_name && c.sent > 0) {
-                try {
-                    const groupContacts = contactsDb.getAll(c.group_name) || [];
-                    // Assume first N contacts were reached (where N = sent count)
-                    groupContacts.slice(0, c.sent).forEach(contact => {
-                        if (contact.phone) uniqueContacts.add(contact.phone);
-                    });
-                } catch (err) {
-                    console.error('[Analytics] Error counting contacts for group:', c.group_name, err);
-                }
+        // Fix #14: Count unique contacts reached via SQL instead of loading contacts into memory
+        let uniquePeopleReached = 0;
+        if (filteredCampaigns.length > 0) {
+            try {
+                const ids = filteredCampaigns.map(c => c.id);
+                const placeholders = ids.map(() => '?').join(',');
+                const row = db.prepare(`SELECT COUNT(DISTINCT contact_phone) as cnt FROM campaign_messages WHERE campaign_id IN (${placeholders}) AND status = 'sent'`).get(...ids);
+                uniquePeopleReached = row ? row.cnt : 0;
+            } catch (err) {
+                console.error('[Analytics] Error counting unique contacts:', err.message);
             }
-        });
+        }
 
         // Count media files sent
         const mediaSent = filteredCampaigns.reduce((sum, c) => {
@@ -937,7 +949,7 @@ app.get('/api/analytics', (req, res) => {
         const response = {
             stats: {
                 totalMessages,
-                peopleReached: uniqueContacts.size,
+                peopleReached: uniquePeopleReached,
                 mediaSent,
                 deliveryRate,
                 messagesChange: 0,
@@ -1316,7 +1328,30 @@ if (process.env.NODE_ENV !== 'test') {
         const actualPort = server.address().port;
         console.log(`SERVER_PORT=${actualPort}`);
         console.log(`\n🤖 Srotas.bot Dashboard running at http://localhost:${actualPort}\n`);
+
+        // Fix #11: Clean up old messages on startup and every 24h
+        try { messagesDb.cleanup(90); } catch (e) { }
+        setInterval(() => {
+            try { messagesDb.cleanup(90); } catch (e) { }
+        }, 24 * 60 * 60 * 1000);
     });
+
+    // Fix #21: Graceful shutdown
+    const shutdown = async () => {
+        console.log('[Shutdown] Graceful shutdown initiated...');
+        try { scheduler.stop(); } catch (e) { }
+        try {
+            const sessions = sessionManager.listSessions();
+            for (const s of sessions) {
+                const sock = sessionManager.getClient(s.id);
+                if (sock) { try { sock.end(); } catch (_) { } }
+            }
+        } catch (e) { }
+        try { db.close(); } catch (e) { }
+        process.exit(0);
+    };
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
 }
 
 module.exports = app;

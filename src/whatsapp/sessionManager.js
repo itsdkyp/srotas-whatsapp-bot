@@ -21,7 +21,20 @@ const { sessions: sessionDb, messages: messagesDb, db: rawDb } = require('../db/
 const clients = new Map();            // sessionId → Baileys socket
 const sessionStates = new Map();      // sessionId → { status, qr }
 const contactStores = new Map();      // sessionId → Map<phone, { phone, name }>
-const pollMessageStore = new Map();   // msgKey → poll message (for vote decoding)
+const pollMessageStore = new Map();   // msgKey → { message, createdAt } (for vote decoding)
+
+// Prune pollMessageStore every 30 minutes (remove entries older than 7 days)
+setInterval(() => {
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    for (const [key, entry] of pollMessageStore) {
+        if (entry.createdAt < cutoff) pollMessageStore.delete(key);
+    }
+}, 30 * 60 * 1000);
+
+// Cached Baileys version (refreshed every 24 hours)
+let cachedBaileysVersion = null;
+let baileysVersionFetchedAt = 0;
+const BAILEYS_VERSION_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
 let io = null; // Socket.IO instance — set via init()
 
@@ -118,7 +131,17 @@ async function createClient(sessionId, name, retryCount = 0) {
     if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
 
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
-    const { version } = await fetchLatestBaileysVersion();
+    // Use cached version if available and fresh (avoids GitHub API call on every reconnect)
+    if (!cachedBaileysVersion || Date.now() - baileysVersionFetchedAt > BAILEYS_VERSION_TTL) {
+        try {
+            const { version: fetched } = await fetchLatestBaileysVersion();
+            cachedBaileysVersion = fetched;
+            baileysVersionFetchedAt = Date.now();
+        } catch (e) {
+            console.warn('[Baileys] Failed to fetch latest version, using cached or default');
+        }
+    }
+    const version = cachedBaileysVersion || [2, 3000, 1015901307];
 
     // Initialize per-session contact store
     if (!contactStores.has(sessionId)) {
@@ -133,16 +156,21 @@ async function createClient(sessionId, name, retryCount = 0) {
         },
         logger: baileysLogger,
         printQRInTerminal: false,
-        browser: Browsers.ubuntu('Srotas Bot'),
+        // Use standard desktop client header to prevent WhatsApp anti-bot systems from revoking linked sessions
+        browser: Browsers.macOS('Desktop'),
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
         generateHighQualityLinkPreview: false,
-        markOnlineOnConnect: true,
-        syncFullHistory: true,
+        markOnlineOnConnect: false,
+        // Disable full history sync to prevent downloading thousands of old messages and triggering error 440 rate limits
+        syncFullHistory: false,
     });
 
-    sessionStates.set(sessionId, { status: 'initializing', qr: null });
-    if (io) io.emit('session:status', { sessionId, status: 'initializing' });
+    const existingState = sessionStates.get(sessionId);
+    if (!state.creds?.registered || !existingState || existingState.status !== 'ready') {
+        sessionStates.set(sessionId, { status: 'initializing', qr: null });
+        if (io) io.emit('session:status', { sessionId, status: 'initializing' });
+    }
 
     // ─── Save credentials on update ───
     sock.ev.on('creds.update', saveCreds);
@@ -152,6 +180,11 @@ async function createClient(sessionId, name, retryCount = 0) {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
+            // Ignore transient QR emissions during reconnection if credentials are already paired/registered
+            if (state.creds?.registered) {
+                console.log(`[Session ${name}] Ignoring transient QR emission (session already registered)`);
+                return;
+            }
             const qrDataUrl = await qrcode.toDataURL(qr, { width: 300 });
             sessionStates.set(sessionId, { status: 'qr_pending', qr: qrDataUrl });
             sessionDb.updateStatus(sessionId, 'qr_pending');
@@ -173,29 +206,28 @@ async function createClient(sessionId, name, retryCount = 0) {
             clients.delete(sessionId);
 
             if (statusCode === DisconnectReason.loggedOut) {
-                // User logged out — don't reconnect
+                // User explicitly logged out from their phone — don't reconnect
                 sessionStates.set(sessionId, { status: 'disconnected', qr: null });
                 sessionDb.updateStatus(sessionId, 'disconnected');
                 if (io) io.emit('session:disconnected', { sessionId, reason: 'logged_out' });
-                console.log(`[Session ${name}] Logged out`);
+                console.log(`[Session ${name}] Logged out from device`);
             } else if (statusCode === DisconnectReason.badSession) {
-                // Bad session — clear auth
+                // Corrupted session — clear auth
                 sessionStates.set(sessionId, { status: 'auth_failure', qr: null });
                 sessionDb.updateStatus(sessionId, 'auth_failure');
                 if (io) io.emit('session:auth_failure', { sessionId, error: 'bad_session' });
                 console.error(`[Session ${name}] Auth failure — bad session`);
-            } else if (retryCount < 5) {
-                // Auto-reconnect with exponential backoff
-                const delay = Math.min(3000 * (retryCount + 1), 15000);
-                console.log(`[Session ${name}] Disconnected (code ${statusCode}), reconnecting in ${delay}ms...`);
-                sessionStates.set(sessionId, { status: 'reconnecting', qr: null });
-                if (io) io.emit('session:status', { sessionId, status: 'reconnecting' });
-                setTimeout(() => createClient(sessionId, name, retryCount + 1), delay);
             } else {
-                sessionStates.set(sessionId, { status: 'error', qr: null });
-                sessionDb.updateStatus(sessionId, 'error');
-                if (io) io.emit('session:error', { sessionId, error: `Failed after ${retryCount} retries` });
-                console.error(`[Session ${name}] Gave up after ${retryCount} retries`);
+                // Continuous self-healing auto-reconnect for network drops, timeouts (408), stream restarts (515), or rate limits (440)
+                const isStreamRestart = statusCode === 515 || statusCode === 428;
+                // Cap backoff at 30 seconds during prolonged internet outages or rate limits
+                const delay = isStreamRestart ? 500 : Math.min(3000 * (retryCount + 1), 30000);
+                console.log(`[Session ${name}] Disconnected (code ${statusCode}), reconnecting in ${delay}ms (retry #${retryCount + 1})...`);
+                if (!isStreamRestart) {
+                    sessionStates.set(sessionId, { status: 'reconnecting', qr: null });
+                    if (io) io.emit('session:status', { sessionId, status: 'reconnecting' });
+                }
+                setTimeout(() => createClient(sessionId, name, retryCount + 1), delay);
             }
         }
     });
@@ -274,8 +306,9 @@ async function createClient(sessionId, name, retryCount = 0) {
             if (!update?.pollUpdates) continue;
 
             // Decode poll votes
-            const pollMsg = pollMessageStore.get(`${key.remoteJid}:${key.id}`);
-            if (!pollMsg) continue;
+            const pollEntry = pollMessageStore.get(`${key.remoteJid}:${key.id}`);
+            if (!pollEntry) continue;
+            const pollMsg = pollEntry.message;
 
             try {
                 const votes = getAggregateVotesInPollMessage({
@@ -498,7 +531,7 @@ function onVote(handler) {
  * Called by bulkSender after sending a poll.
  */
 function storePollMessage(jid, msgId, message) {
-    pollMessageStore.set(`${jid}:${msgId}`, message);
+    pollMessageStore.set(`${jid}:${msgId}`, { message, createdAt: Date.now() });
 }
 
 // ═══════════════════════════════════════

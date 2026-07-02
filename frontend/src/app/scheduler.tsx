@@ -207,11 +207,11 @@ export function Scheduler() {
                                 <Select value={newSchedule.sessionId} onValueChange={v => setNewSchedule({ ...newSchedule, sessionId: v || '' })}>
                                     <SelectTrigger>
                                         <span className="truncate">
-                                            {newSchedule.sessionId ? (sessions.find(s => s.id.toString() === newSchedule.sessionId)?.name || newSchedule.sessionId) : "Select device"}
+                                            {newSchedule.sessionId ? (allSessions.find(s => s.id.toString() === newSchedule.sessionId)?.name || sessions.find(s => s.id.toString() === newSchedule.sessionId)?.name || newSchedule.sessionId) : "Select device"}
                                         </span>
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {sessions.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>)}
+                                        {allSessions.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name || s.id} ({s.phone || s.status})</SelectItem>)}
                                     </SelectContent>
                                 </Select>
                             </div>

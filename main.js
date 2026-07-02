@@ -171,7 +171,7 @@ function killServerProcess() {
     try {
         if (process.platform === 'win32') {
             // On Windows, use taskkill with /T flag to kill the entire process tree
-            // This ensures child processes (like Puppeteer/Chromium) are also killed
+            // This ensures any spawned child processes or workers are also cleanly terminated
             execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore' });
         } else {
             serverProcess.kill('SIGTERM');

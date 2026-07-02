@@ -8,15 +8,47 @@ const path = require('path');
 
 const lastReplyTimestamps = new Map();
 
-async function simulateTypingDelay(sock, jid) {
-    const antiBanEnabled = settingsDb.get('anti_ban_enabled');
-    const isEnabled = antiBanEnabled === undefined || antiBanEnabled === '1' || antiBanEnabled === 'true' || antiBanEnabled === true;
-    if (!isEnabled) return;
+// Fix #13: Prune stale cooldown entries every 15 minutes
+setInterval(() => {
+    const cutoff = Date.now() - 10 * 60 * 1000; // 10 minutes
+    for (const [key, ts] of lastReplyTimestamps) {
+        if (ts < cutoff) lastReplyTimestamps.delete(key);
+    }
+}, 15 * 60 * 1000);
 
-    const minSec = parseInt(settingsDb.get('anti_ban_typing_delay_min')) || 3;
-    const maxSec = parseInt(settingsDb.get('anti_ban_typing_delay_max')) || 6;
-    const actualMin = Math.min(minSec, maxSec);
-    const actualMax = Math.max(minSec, maxSec);
+// Fix #24: Mask phone numbers in logs (show first 2 + last 4 digits)
+function maskPhone(phone) {
+    if (!phone || phone.length < 6) return '***';
+    return phone.slice(0, 2) + '****' + phone.slice(-4);
+}
+
+// Fix #18: Cached anti-ban settings (refreshed via refreshSettings())
+let _cachedSettings = null;
+function getAntiBanSettings() {
+    if (_cachedSettings) return _cachedSettings;
+    return refreshSettings();
+}
+function refreshSettings() {
+    const antiBanEnabled = settingsDb.get('anti_ban_enabled');
+    _cachedSettings = {
+        enabled: antiBanEnabled === undefined || antiBanEnabled === '1' || antiBanEnabled === 'true' || antiBanEnabled === true,
+        ignoreBots: (() => {
+            const v = settingsDb.get('anti_ban_ignore_bots');
+            return v === undefined || v === '1' || v === 'true' || v === true;
+        })(),
+        cooldownSec: parseInt(settingsDb.get('anti_ban_cooldown_sec')) || 30,
+        typingDelayMin: parseInt(settingsDb.get('anti_ban_typing_delay_min')) || 3,
+        typingDelayMax: parseInt(settingsDb.get('anti_ban_typing_delay_max')) || 6,
+    };
+    return _cachedSettings;
+}
+
+async function simulateTypingDelay(sock, jid) {
+    const settings = getAntiBanSettings();
+    if (!settings.enabled) return;
+
+    const actualMin = Math.min(settings.typingDelayMin, settings.typingDelayMax);
+    const actualMax = Math.max(settings.typingDelayMin, settings.typingDelayMax);
     const delayMs = Math.floor(Math.random() * (actualMax - actualMin + 1) + actualMin) * 1000;
 
     try {
@@ -79,7 +111,7 @@ function init() {
             const selectedName = selectedOptions[0]?.name;
             if (!selectedName) return;
 
-            console.log(`[PollVote] ${voterPhone} selected "${selectedName}"`);
+            console.log(`[PollVote] ${maskPhone(voterPhone)} selected "${selectedName}"`);
 
             // Find the campaign button that matches this vote
             const campaigns = campaignsDb.getActiveCampaignsWithButtons();
@@ -105,7 +137,7 @@ function init() {
                     if (!sock) continue;
                     const chatId = phoneClean.includes('@') ? phoneClean : `${phoneClean}@s.whatsapp.net`;
                     await sock.sendMessage(chatId, { text: matched.reply });
-                    console.log(`[PollVote] Sent auto-reply to ${voterPhone} for "${selectedName}"`);
+                    console.log(`[PollVote] Sent auto-reply to ${maskPhone(voterPhone)} for "${selectedName}"`);
                     return;
                 }
             }
@@ -170,7 +202,7 @@ function init() {
             // ─── Campaign Button Reply Check (highest priority - always works) ───
             const buttonReply = checkCampaignButtonReply(contactPhone, content);
             if (buttonReply) {
-                console.log(`[CampaignButton] Match for "${content}" from ${contactPhone} — sending reply`);
+                console.log(`[CampaignButton] Match for "${content}" from ${maskPhone(contactPhone)} — sending reply`);
                 await sock.sendMessage(jid, { text: buttonReply }, { quoted: msg });
                 memory.addMessage(contactPhone, 'out', `[Button Reply] ${buttonReply}`, sessionId);
                 return;
@@ -183,29 +215,25 @@ function init() {
             }
 
             // ─── Anti-Ban Checks (Ignore Bots & Cooldowns) ───
-            const antiBanEnabled = settingsDb.get('anti_ban_enabled');
-            const isAntiBan = antiBanEnabled === undefined || antiBanEnabled === '1' || antiBanEnabled === 'true' || antiBanEnabled === true;
-            if (isAntiBan) {
-                const ignoreBots = settingsDb.get('anti_ban_ignore_bots');
-                const isIgnoreBots = ignoreBots === undefined || ignoreBots === '1' || ignoreBots === 'true' || ignoreBots === true;
-                if (isIgnoreBots) {
+            const abSettings = getAntiBanSettings();
+            if (abSettings.enabled) {
+                if (abSettings.ignoreBots) {
                     if (jid.endsWith('@lid') || jid.includes('broadcast') || contactPhone.length < 10) {
-                        console.log(`[AntiBan] Ignored automated system/LID account: ${contactPhone}`);
+                        console.log(`[AntiBan] Ignored automated system/LID account: ${maskPhone(contactPhone)}`);
                         return;
                     }
                     const lowerContent = content.toLowerCase();
-                    const botKeywords = ['to continue, please type', 'welcome to *', 'sbi whatsapp banking', 'domino’s', 'verification code', 'otp', 'do not reply', 'automated message'];
+                    const botKeywords = ['to continue, please type', 'welcome to *', 'sbi whatsapp banking', 'domino\'s', 'verification code', 'otp', 'do not reply', 'automated message'];
                     if (botKeywords.some(k => lowerContent.includes(k))) {
-                        console.log(`[AntiBan] Ignored message with bot keywords from ${contactPhone}`);
+                        console.log(`[AntiBan] Ignored message with bot keywords from ${maskPhone(contactPhone)}`);
                         return;
                     }
                 }
 
-                const cooldownSec = parseInt(settingsDb.get('anti_ban_cooldown_sec')) || 30;
                 const lastTime = lastReplyTimestamps.get(`${sessionId}:${contactPhone}`);
-                if (lastTime && Date.now() - lastTime < cooldownSec * 1000) {
-                    const remaining = Math.ceil((cooldownSec * 1000 - (Date.now() - lastTime)) / 1000);
-                    console.log(`[AntiBan] Cooldown active for ${contactPhone} (${remaining}s remaining) — skipping response to prevent loops/spam.`);
+                if (lastTime && Date.now() - lastTime < abSettings.cooldownSec * 1000) {
+                    const remaining = Math.ceil((abSettings.cooldownSec * 1000 - (Date.now() - lastTime)) / 1000);
+                    console.log(`[AntiBan] Cooldown active for ${maskPhone(contactPhone)} (${remaining}s remaining) — skipping response to prevent loops/spam.`);
                     return;
                 }
             }
@@ -291,7 +319,7 @@ function init() {
 
                     lastReplyTimestamps.set(`${sessionId}:${contactPhone}`, Date.now());
                     memory.addMessage(contactPhone, 'out', `[Quick Reply: ${matchedReply.label}] ${matchedReply.response}`, sessionId);
-                    console.log(`[QuickReply → ${contactPhone}] Trigger: "${matchedReply.trigger_key}" → Sent: "${matchedReply.label}"`);
+                    console.log(`[QuickReply → ${maskPhone(contactPhone)}] Trigger: "${matchedReply.trigger_key}" → Sent: "${matchedReply.label}"`);
 
                     // Log quick reply analytics
                     try {
@@ -313,7 +341,6 @@ function init() {
             }
 
             // Get conversation history for context (if enabled)
-            const { settings: settingsDb } = require('../db/database');
             const chatHistoryEnabled = settingsDb.get('ai_chat_history');
             const useHistory = chatHistoryEnabled === undefined || chatHistoryEnabled === '1' || chatHistoryEnabled === 'true' || chatHistoryEnabled === true;
 
@@ -349,7 +376,7 @@ function init() {
                 lastReplyTimestamps.set(`${sessionId}:${contactPhone}`, Date.now());
                 // Store outgoing message
                 memory.addMessage(contactPhone, 'out', reply.trim(), sessionId);
-                console.log(`[AutoReply → ${contactPhone}] ${reply.trim().substring(0, 80)}...`);
+                console.log(`[AutoReply → ${maskPhone(contactPhone)}] ${reply.trim().substring(0, 80)}...`);
 
                 // Log AI reply analytics
                 try {
@@ -366,4 +393,4 @@ function escapeRegExp(string) {
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-module.exports = { init };
+module.exports = { init, refreshSettings };

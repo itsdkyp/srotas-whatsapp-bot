@@ -188,6 +188,7 @@ export function Campaigns() {
         try {
             const data = await getCampaign(id.toString());
             setSelectedCampaign(data);
+            if (data?.session_id) setSelectedSession(data.session_id.toString());
             setAnalyticsOpen(true);
         } catch { toast.error('Failed to load campaign data'); }
     };
@@ -426,12 +427,12 @@ export function Campaigns() {
                                 <Select value={selectedSession} onValueChange={(v) => setSelectedSession(v || '')}>
                                     <SelectTrigger className="bg-secondary/50">
                                         <span className="truncate">
-                                            {selectedSession ? (sessions.find(s => s.id.toString() === selectedSession)?.name || selectedSession) : "Select device"}
+                                            {selectedSession ? (allSessions.find(s => s.id.toString() === selectedSession)?.name || sessions.find(s => s.id.toString() === selectedSession)?.name || selectedSession) : "Select device"}
                                         </span>
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {sessions.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name} (+{s.phone})</SelectItem>)}
-                                        {sessions.length === 0 && <SelectItem value="none" disabled>No ready devices</SelectItem>}
+                                        {allSessions.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name || s.id} ({s.phone || s.status})</SelectItem>)}
+                                        {allSessions.length === 0 && <SelectItem value="none" disabled>No ready devices</SelectItem>}
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -480,7 +481,13 @@ export function Campaigns() {
                             {templates.length > 0 && (
                                 <div className="w-[180px]">
                                     <Select value={selectedTemplate} onValueChange={(v) => handleTemplateSelect(v || '')}>
-                                        <SelectTrigger className="h-8 text-xs bg-secondary/50"><SelectValue placeholder="Load Template" /></SelectTrigger>
+                                        <SelectTrigger className="h-8 text-xs bg-secondary/50">
+                                            <span className="truncate">
+                                                {selectedTemplate && selectedTemplate !== 'none'
+                                                    ? (templates.find(t => t.id.toString() === selectedTemplate)?.name || selectedTemplate)
+                                                    : selectedTemplate === 'none' ? "Write from scratch" : "Load Template"}
+                                            </span>
+                                        </SelectTrigger>
                                         <SelectContent>
                                             <SelectItem value="none">Write from scratch</SelectItem>
                                             {templates.map(t => <SelectItem key={t.id} value={t.id.toString()}>{t.name}</SelectItem>)}
@@ -711,6 +718,22 @@ export function Campaigns() {
                                 <div className="flex items-center gap-2 flex-shrink-0 ml-4">
                                     {!isLiveRunning && (
                                         <>
+                                            <div className="w-44">
+                                                <Select value={selectedSession} onValueChange={(v) => setSelectedSession(v || '')}>
+                                                    <SelectTrigger className="h-8 text-xs bg-muted/30 border-border/60">
+                                                        <span className="truncate">
+                                                            {selectedSession ? (allSessions.find(s => s.id.toString() === selectedSession)?.name || sessions.find(s => s.id.toString() === selectedSession)?.name || selectedSession) : "Select device to send"}
+                                                        </span>
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {allSessions.map(s => (
+                                                            <SelectItem key={s.id} value={s.id.toString()}>
+                                                                {s.name || s.id} ({s.phone || s.status})
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
                                             <Button variant="outline" size="sm" onClick={() => handleRetry(selectedCampaign.id)} className="gap-1.5 text-xs h-8">
                                                 <RefreshCw className="w-3.5 h-3.5" /> Retry Failed
                                             </Button>

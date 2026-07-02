@@ -314,12 +314,15 @@ const campaigns = {
     getAll: () => db.prepare('SELECT * FROM campaigns ORDER BY started_at DESC').all(),
     getById: (id) => db.prepare('SELECT * FROM campaigns WHERE id = ?').get(id),
     update: (id, fields) => {
+        const ALLOWED_FIELDS = ['status', 'sent', 'failed', 'total', 'completed_at', 'name', 'template', 'group_name', 'media_path', 'media_paths', 'buttons_config', 'min_delay', 'max_delay'];
         const sets = [];
         const vals = [];
         for (const [k, v] of Object.entries(fields)) {
+            if (!ALLOWED_FIELDS.includes(k)) continue; // Skip unknown columns
             sets.push(`${k} = ?`);
             vals.push(v);
         }
+        if (sets.length === 0) return; // Nothing to update
         vals.push(id);
         db.prepare(`UPDATE campaigns SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
     },

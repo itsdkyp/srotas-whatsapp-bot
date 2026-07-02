@@ -111,32 +111,24 @@ async function sendBulk(sessionId, contacts, template, options = {}) {
     const buttonsData = options.buttons || null;
     const campaignName = options.name || null;
 
-    // Prepare media files (read into buffers)
+    // Prepare media file references (lazy load buffers during send loop to save memory)
     const mediaList = [];
     if (mediaPaths && mediaPaths.length > 0) {
         for (const mp of mediaPaths) {
             if (mp && fs.existsSync(mp)) {
-                try {
-                    mediaList.push({
-                        buffer: fs.readFileSync(mp),
-                        mimetype: getMimetype(mp),
-                        filename: path.basename(mp),
-                    });
-                } catch (err) {
-                    console.error('[BulkSender] Failed to load media:', mp, err.message);
-                }
+                mediaList.push({
+                    path: mp,
+                    mimetype: getMimetype(mp),
+                    filename: path.basename(mp),
+                });
             }
         }
     } else if (mediaPath && fs.existsSync(mediaPath)) {
-        try {
-            mediaList.push({
-                buffer: fs.readFileSync(mediaPath),
-                mimetype: getMimetype(mediaPath),
-                filename: path.basename(mediaPath),
-            });
-        } catch (err) {
-            console.error('[BulkSender] Failed to load media:', err.message);
-        }
+        mediaList.push({
+            path: mediaPath,
+            mimetype: getMimetype(mediaPath),
+            filename: path.basename(mediaPath),
+        });
     }
 
     // Create campaign record or reuse existing one for retries
@@ -197,13 +189,15 @@ async function sendBulk(sessionId, contacts, template, options = {}) {
             try {
                 // ─── Construct & Send Message ───
                 if (mediaList.length > 0) {
-                    // First media gets the message as caption
-                    const firstPayload = buildMediaPayload(mediaList[0], message);
+                    // Lazy load first media buffer just before sending
+                    const firstMedia = { ...mediaList[0], buffer: fs.readFileSync(mediaList[0].path) };
+                    const firstPayload = buildMediaPayload(firstMedia, message);
                     await sendWithTimeout(currentSock, chatId, firstPayload);
 
                     // Additional media sent standalone (no caption)
                     for (let mi = 1; mi < mediaList.length; mi++) {
-                        const extraPayload = buildMediaPayload(mediaList[mi], null);
+                        const extraMedia = { ...mediaList[mi], buffer: fs.readFileSync(mediaList[mi].path) };
+                        const extraPayload = buildMediaPayload(extraMedia, null);
                         await sendWithTimeout(currentSock, chatId, extraPayload);
                     }
                 } else {
