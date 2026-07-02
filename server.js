@@ -1319,6 +1319,17 @@ io.on('connection', (socket) => {
 });
 
 // ═══════════════════════════════════════
+// Global Exception & JSON Error Middleware
+// ═══════════════════════════════════════
+app.use((err, req, res, next) => {
+    console.error('[API Error]', err.stack || err.message || err);
+    res.status(err.status || 500).json({
+        success: false,
+        error: err.message || 'Internal Server Error'
+    });
+});
+
+// ═══════════════════════════════════════
 // Start server
 // ═══════════════════════════════════════
 

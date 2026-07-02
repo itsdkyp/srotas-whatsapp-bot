@@ -189,14 +189,16 @@ async function sendBulk(sessionId, contacts, template, options = {}) {
             try {
                 // ─── Construct & Send Message ───
                 if (mediaList.length > 0) {
-                    // Lazy load first media buffer just before sending
-                    const firstMedia = { ...mediaList[0], buffer: fs.readFileSync(mediaList[0].path) };
+                    // Non-blocking async file read for first media buffer
+                    const firstBuffer = await fs.promises.readFile(mediaList[0].path);
+                    const firstMedia = { ...mediaList[0], buffer: firstBuffer };
                     const firstPayload = buildMediaPayload(firstMedia, message);
                     await sendWithTimeout(currentSock, chatId, firstPayload);
 
                     // Additional media sent standalone (no caption)
                     for (let mi = 1; mi < mediaList.length; mi++) {
-                        const extraMedia = { ...mediaList[mi], buffer: fs.readFileSync(mediaList[mi].path) };
+                        const extraBuffer = await fs.promises.readFile(mediaList[mi].path);
+                        const extraMedia = { ...mediaList[mi], buffer: extraBuffer };
                         const extraPayload = buildMediaPayload(extraMedia, null);
                         await sendWithTimeout(currentSock, chatId, extraPayload);
                     }
