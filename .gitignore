@@ -2,6 +2,12 @@ node_modules/
 .env
 data/
 uploads/
+auth/
+tmp/
+.tmp/
+*.sqlite
+*.sqlite3
+*.db
 .wwebjs_auth/
 .wwebjs_cache/
 

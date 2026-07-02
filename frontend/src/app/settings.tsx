@@ -11,13 +11,13 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Brain, Palette, KeyRound, Save, Infinity, Eye, EyeOff, CheckCircle, Sun, Moon, Cpu, Settings2, LogOut } from 'lucide-react';
+import { Brain, Palette, KeyRound, Save, Infinity, Eye, EyeOff, CheckCircle, Sun, Moon, Cpu, Settings2, LogOut, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 
 const ease = [0.25, 0.46, 0.45, 0.94] as const;
 
 export function Settings() {
-    const [settings, setSettings] = useState({
+    const [settings, setSettings] = useState<any>({
         theme: 'dark',
         ai_provider: 'gemini',
         ai_model: '',
@@ -28,7 +28,12 @@ export function Settings() {
         min_delay: '8000',
         max_delay: '18000',
         gemini_api_key: '',
-        openai_api_key: ''
+        openai_api_key: '',
+        anti_ban_enabled: true,
+        anti_ban_ignore_bots: true,
+        anti_ban_cooldown_sec: '30',
+        anti_ban_typing_delay_min: '3',
+        anti_ban_typing_delay_max: '6'
     });
 
     const availableModels = {
@@ -234,6 +239,80 @@ export function Settings() {
                     {/* SYSTEM TAB */}
                     <TabsContent value="system" className="mt-0">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                            {/* Anti-Ban Protections */}
+                            <Card className="card-glow border-emerald-500/30 bg-emerald-500/5 shadow-sm md:col-span-2">
+                                <CardHeader className="pb-4 pt-5 px-5 border-b border-border/30">
+                                    <div className="flex items-center justify-between">
+                                        <CardTitle className="text-base flex items-center gap-2.5 font-semibold text-emerald-600 dark:text-emerald-400">
+                                            <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-emerald-500/20">
+                                                <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                                            </div>
+                                            Anti-Ban & Loop Safeguards (Recommended)
+                                        </CardTitle>
+                                        <Switch
+                                            checked={settings.anti_ban_enabled}
+                                            onCheckedChange={checked => setSettings({ ...settings, anti_ban_enabled: checked })}
+                                        />
+                                    </div>
+                                    <CardDescription className="text-[11px] mt-1">
+                                        Protects your WhatsApp account from being restricted or unlinked by simulating human pacing and blocking automated bot loops.
+                                    </CardDescription>
+                                </CardHeader>
+                                {settings.anti_ban_enabled && (
+                                    <CardContent className="p-5 grid grid-cols-1 md:grid-cols-3 gap-5">
+                                        <div className="flex items-center justify-between gap-3 bg-background/50 border border-border/50 rounded-lg p-3 md:col-span-1">
+                                            <div>
+                                                <Label className="text-xs font-semibold text-foreground/90">Ignore Bots & System Chats</Label>
+                                                <p className="text-[10px] text-muted-foreground mt-0.5">Automatically blocks replies to official WhatsApp bots & LID accounts.</p>
+                                            </div>
+                                            <Switch
+                                                checked={settings.anti_ban_ignore_bots}
+                                                onCheckedChange={checked => setSettings({ ...settings, anti_ban_ignore_bots: checked })}
+                                            />
+                                        </div>
+
+                                        <div className="space-y-1.5 bg-background/50 border border-border/50 rounded-lg p-3">
+                                            <Label className="text-xs font-semibold text-foreground/90">Cooldown per Contact (Seconds)</Label>
+                                            <p className="text-[10px] text-muted-foreground">Min wait time between replies to same number (Default: 30s).</p>
+                                            <Input
+                                                type="number"
+                                                min="0"
+                                                max="300"
+                                                value={settings.anti_ban_cooldown_sec}
+                                                onChange={e => setSettings({ ...settings, anti_ban_cooldown_sec: e.target.value })}
+                                                className="bg-secondary/30 font-mono h-8 text-xs mt-1"
+                                            />
+                                        </div>
+
+                                        <div className="space-y-1.5 bg-background/50 border border-border/50 rounded-lg p-3">
+                                            <Label className="text-xs font-semibold text-foreground/90">Typing Delay Range (Seconds)</Label>
+                                            <p className="text-[10px] text-muted-foreground">Randomized human typing delay (Default: 3 to 6s).</p>
+                                            <div className="flex items-center gap-2 mt-1">
+                                                <Input
+                                                    type="number"
+                                                    min="0"
+                                                    max="30"
+                                                    value={settings.anti_ban_typing_delay_min}
+                                                    onChange={e => setSettings({ ...settings, anti_ban_typing_delay_min: e.target.value })}
+                                                    placeholder="Min"
+                                                    className="bg-secondary/30 font-mono h-8 text-xs"
+                                                />
+                                                <span className="text-xs text-muted-foreground">to</span>
+                                                <Input
+                                                    type="number"
+                                                    min="0"
+                                                    max="60"
+                                                    value={settings.anti_ban_typing_delay_max}
+                                                    onChange={e => setSettings({ ...settings, anti_ban_typing_delay_max: e.target.value })}
+                                                    placeholder="Max"
+                                                    className="bg-secondary/30 font-mono h-8 text-xs"
+                                                />
+                                            </div>
+                                        </div>
+                                    </CardContent>
+                                )}
+                            </Card>
 
                             {/* Theme */}
                             <Card className="card-glow border-border/50 shadow-sm">

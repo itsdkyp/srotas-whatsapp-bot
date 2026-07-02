@@ -39,6 +39,10 @@ jest.mock('../src/messaging/scheduler', () => ({
     remove: jest.fn()
 }));
 
+jest.mock('../src/whatsapp/messageHandler', () => ({
+    init: jest.fn()
+}));
+
 const app = require('../server');
 const db = require('../src/db/database');
 
@@ -54,7 +58,7 @@ describe('API Routes', () => {
                 DELETE FROM groups;
                 DELETE FROM contacts;
                 DELETE FROM campaigns;
-                DELETE FROM templates;
+                DELETE FROM message_templates;
                 DELETE FROM quick_replies;
                 DELETE FROM settings;
             `);

@@ -5,6 +5,14 @@ const { settings: settingsDb } = require('../db/database');
 let geminiModel = null;
 let openaiClient = null;
 let currentGeminiModelName = null;
+let currentGeminiKey = null;
+let currentOpenAIKey = null;
+let _aiConfigDirty = true; // Force re-init on first call
+
+// Called from PUT /api/settings to invalidate cached AI config
+function refreshAIConfig() {
+    _aiConfigDirty = true;
+}
 
 function getProvider() {
     return settingsDb.get('ai_provider') || process.env.AI_PROVIDER || 'gemini';
@@ -28,6 +36,7 @@ function initGemini() {
     const genAI = new GoogleGenerativeAI(key);
     geminiModel = genAI.getGenerativeModel({ model: modelName });
     currentGeminiModelName = modelName;
+    currentGeminiKey = key;
     return geminiModel;
 }
 
@@ -35,6 +44,7 @@ function initOpenAI() {
     const key = settingsDb.get('openai_api_key') || process.env.OPENAI_API_KEY;
     if (!key) return null;
     openaiClient = new OpenAI({ apiKey: key });
+    currentOpenAIKey = key;
     return openaiClient;
 }
 
@@ -50,10 +60,10 @@ async function generateReply(conversationHistory, incomingMessage, mediaData = n
 }
 
 async function generateGeminiReply(history, incoming, systemPrompt, mediaData) {
-    // Re-init if model selection changed
-    const selectedModel = settingsDb.get('ai_model') || 'gemini-3.1-pro-preview';
-    if (!geminiModel || currentGeminiModelName !== selectedModel) {
+    // Re-init only when settings have been changed
+    if (_aiConfigDirty || !geminiModel) {
         initGemini();
+        _aiConfigDirty = false;
     }
     const model = geminiModel;
     if (!model) throw new Error('Gemini API key not configured');
@@ -94,7 +104,11 @@ async function generateGeminiReply(history, incoming, systemPrompt, mediaData) {
 }
 
 async function generateOpenAIReply(history, incoming, systemPrompt, mediaData) {
-    const client = openaiClient || initOpenAI();
+    if (_aiConfigDirty || !openaiClient) {
+        initOpenAI();
+        _aiConfigDirty = false;
+    }
+    const client = openaiClient;
     if (!client) throw new Error('OpenAI API key not configured');
 
     const messages = [];
@@ -133,4 +147,4 @@ async function generateOpenAIReply(history, incoming, systemPrompt, mediaData) {
     return completion.choices[0].message.content;
 }
 
-module.exports = { generateReply, getProvider, getSystemPrompt };
+module.exports = { generateReply, getProvider, getSystemPrompt, refreshAIConfig };
