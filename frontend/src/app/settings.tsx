@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { getSettings, updateSettings, getLicenseStatus } from '@/lib/api';
+import { getSettings, updateSettings, getLicenseStatus, deactivateLicense, uploadCompanyLogo, deleteCompanyLogo } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,13 +11,13 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Brain, Palette, KeyRound, Save, Infinity, Eye, EyeOff, CheckCircle, Sun, Moon, Cpu, Settings2 } from 'lucide-react';
+import { Brain, Palette, KeyRound, Save, Infinity, Eye, EyeOff, CheckCircle, Sun, Moon, Cpu, Settings2, LogOut, ShieldCheck, ImagePlus, Trash2, RotateCcw, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 
 const ease = [0.25, 0.46, 0.45, 0.94] as const;
 
 export function Settings() {
-    const [settings, setSettings] = useState({
+    const [settings, setSettings] = useState<any>({
         theme: 'dark',
         ai_provider: 'gemini',
         ai_model: '',
@@ -28,7 +28,13 @@ export function Settings() {
         min_delay: '8000',
         max_delay: '18000',
         gemini_api_key: '',
-        openai_api_key: ''
+        openai_api_key: '',
+        anti_ban_enabled: true,
+        anti_ban_ignore_bots: true,
+        anti_ban_cooldown_sec: '30',
+        anti_ban_typing_delay_min: '3',
+        anti_ban_typing_delay_max: '6',
+        image_generation_prompt: '',
     });
 
     const availableModels = {
@@ -40,9 +46,90 @@ export function Settings() {
     const [saving, setSaving] = useState(false);
     const [showApiKey, setShowApiKey] = useState(false);
     const [activeTab, setActiveTab] = useState('ai');
+    const [activePromptTab, setActivePromptTab] = useState<'bot' | 'image'>('bot');
+    const [hasLogo, setHasLogo] = useState(false);
+    const [logoVersion, setLogoVersion] = useState(0); // Cache-buster for logo preview
+    const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null);
+    const [logoUploading, setLogoUploading] = useState(false);
+    const logoInputRef = React.useRef<HTMLInputElement>(null);
+
+    const DEFAULT_IMAGE_PROMPT = `You are a world-class commercial photographer, CGI director, and graphic designer specializing in premium Indian brand campaigns. Your work appears in Forbes India, Vogue India, and campaigns for Tata, Mahindra, and Reliance.
+
+CAMPAIGN MESSAGE:
+{{message}}
+
+═══ STEP 1 — DECIDE THE FORMAT (do this first) ═══
+Read the campaign message carefully and choose ONE of the two formats below based on its content and intent:
+
+FORMAT A — POSTER
+Choose this when the message is about: a SALE, DISCOUNT, LIMITED OFFER, EVENT, LAUNCH, ANNOUNCEMENT, DEADLINE, or URGENCY.
+Signals: words like "off", "sale", "offer", "ends", "launch", "new", "limited", "hurry", "today only", "introducing", "event", "%"
+→ A poster uses BOLD TEXT as a primary design element, dramatic background, strong color contrast, and typographic hierarchy to grab instant attention.
+
+FORMAT B — GENERAL PROMOTIONAL
+Choose this when the message is about: a SERVICE, PRODUCT SHOWCASE, BRAND AWARENESS, TRUST-BUILDING, or GENERAL INFORMATION.
+Signals: describing what a company does, features, reliability, expertise, quality, "we provide", "our services", "contact us"
+→ A general promo uses a photorealistic scene where the SERVICE or PRODUCT is the visual hero. Minimal or no text overlay.
+
+═══ STEP 2 — EXECUTE THE CHOSEN FORMAT ═══
+
+IF FORMAT A (POSTER):
+- Layout: Dramatic full-bleed background (real photographic or cinematic CGI scene related to the service/product)
+- Text hierarchy: 1 massive headline (the core offer, max 4 words) + 1 supporting subline (max 6 words)
+- Typography: ONLY clean geometric sans-serif — Helvetica Neue, Futura, or Montserrat. Bold/Black weight. NO serif, script, retro, or decorative fonts
+- Colors: High contrast — white or bright accent text on dark dramatic background
+- People: Optional — small supporting role only
+
+IF FORMAT B (GENERAL PROMOTIONAL):
+- Layout: The SERVICE, PRODUCT, or ENVIRONMENT is the dominant visual hero
+- Text: Minimal or none — at most a 3–5 word label
+- Photography: Shot on Phase One XF IQ4 — tack sharp, shallow depth of field (bokeh), cinematic color grade
+- People: Secondary role only — background or periphery. NEVER the primary subject
+
+═══ RULES FOR BOTH FORMATS ═══
+
+PHOTOREALISM: This image MUST look like a real photograph — NO illustrations, drawings, flat design, cartoon, anime, or watercolor
+PEOPLE: If included — must be Indian (South Asian), aspirational, aged 25–45, modern premium attire, genuine expressions
+TYPOGRAPHY: ONLY Helvetica Neue, Futura, Montserrat. NO serif, script, decorative, or retro fonts
+FORMAT: Square (1:1). Single dominant focal point. Clean, uncluttered composition
+NO INVENTED BRANDING: Do NOT add logos or brand marks not explicitly provided`;
+
+    const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        e.target.value = ''; // Allow re-selecting the same file
+        if (!file) return;
+        setLogoUploading(true);
+        try {
+            const formData = new FormData();
+            formData.append('logo', file);
+            await uploadCompanyLogo(formData);
+            setHasLogo(true);
+            setLogoDataUrl(URL.createObjectURL(file));
+            setLogoVersion(v => v + 1);
+            toast.success('Company logo uploaded');
+        } catch (error: any) {
+            toast.error(error.response?.data?.error || 'Failed to upload logo');
+        } finally {
+            setLogoUploading(false);
+        }
+    };
+
+    const handleLogoDelete = async () => {
+        try {
+            await deleteCompanyLogo();
+            setHasLogo(false);
+            setLogoDataUrl(null);
+            toast.success('Company logo removed');
+        } catch {
+            toast.error('Failed to remove logo');
+        }
+    };
 
     useEffect(() => {
-        getSettings().then(setSettings).catch(console.error);
+        getSettings().then(s => {
+            setSettings(s);
+            setHasLogo(!!s.has_company_logo);
+        }).catch(console.error);
         getLicenseStatus().then(setLicense).catch(console.error);
     }, []);
 
@@ -55,6 +142,16 @@ export function Settings() {
             toast.error('Failed to save settings');
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleDeactivate = async () => {
+        if (!confirm("Are you sure you want to deactivate this license? You will need to enter your license key again to use the application.")) return;
+        try {
+            await deactivateLicense();
+            window.location.reload();
+        } catch (e: any) {
+            toast.error('Failed to deactivate license');
         }
     };
 
@@ -152,6 +249,50 @@ export function Settings() {
                                     </CardContent>
                                 </Card>
 
+                                {/* Company Logo — composited into AI-generated campaign images */}
+                                <Card className="card-glow border-border/50 shadow-sm h-fit">
+                                    <CardHeader className="pb-4 pt-5 px-5 border-b border-border/30">
+                                        <CardTitle className="text-base flex items-center gap-2.5 font-semibold">
+                                            <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-pink-500/20">
+                                                <ImagePlus className="w-3.5 h-3.5 text-pink-400" />
+                                            </div>
+                                            Company Logo
+                                        </CardTitle>
+                                        <CardDescription className="text-[11px] mt-1">
+                                            Added automatically to every AI-generated campaign image. PNG, JPG or WEBP, max 5 MB.
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent className="p-5">
+                                        <input type="file" ref={logoInputRef} className="hidden"
+                                            accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+                                            onChange={handleLogoUpload} />
+                                        {hasLogo ? (
+                                            <div className="flex items-center gap-4">
+                                                <div className="w-16 h-16 rounded-lg border border-border/50 bg-secondary/30 flex items-center justify-center overflow-hidden shrink-0">
+                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                    {logoDataUrl && <img src={logoDataUrl} alt="Company logo" className="max-w-full max-h-full object-contain" />}
+                                                </div>
+                                                <div className="flex flex-col gap-2 flex-1 min-w-0">
+                                                    <Button variant="outline" size="sm" onClick={() => logoInputRef.current?.click()}
+                                                        disabled={logoUploading} className="text-xs h-8 gap-1.5">
+                                                        <ImagePlus className="w-3.5 h-3.5" /> {logoUploading ? 'Uploading…' : 'Replace'}
+                                                    </Button>
+                                                    <Button variant="ghost" size="sm" onClick={handleLogoDelete}
+                                                        className="text-xs h-8 gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10">
+                                                        <Trash2 className="w-3.5 h-3.5" /> Remove
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div onClick={() => !logoUploading && logoInputRef.current?.click()}
+                                                className="border-2 border-dashed border-border/50 rounded-xl p-5 text-center cursor-pointer hover:bg-secondary/30 hover:border-primary/40 transition-all bg-secondary/10">
+                                                <ImagePlus className="w-6 h-6 mx-auto mb-2 text-primary/60" />
+                                                <span className="text-xs font-medium">{logoUploading ? 'Uploading…' : 'Click to upload your logo'}</span>
+                                            </div>
+                                        )}
+                                    </CardContent>
+                                </Card>
+
                                 {/* Easter Egg Settings (Moved directly below API & Model) */}
                                 {license?.isLifetime && (
                                     <Card className="card-glow border-purple-500/20 bg-purple-500/5 shadow-sm shrink-0">
@@ -191,39 +332,202 @@ export function Settings() {
                                 )}
                             </div>
 
-                            {/* Right: Instructions (Wider area) */}
-                            <Card className="card-glow border-border/50 lg:col-span-2 flex flex-col shadow-sm min-h-[500px]">
-                                <CardHeader className="pb-4 pt-5 px-5 border-b border-border/30 shrink-0 flex flex-row items-center justify-between">
-                                    <div>
-                                        <CardTitle className="text-base font-semibold">System Instructions</CardTitle>
-                                        <CardDescription className="text-[11px] mt-0.5">Define the core persona, logic, and rules for the AI.</CardDescription>
-                                    </div>
-                                    {license?.isLifetime && (
-                                        <div className="flex items-center gap-2 bg-secondary/30 border border-border/50 px-3 py-1.5 rounded-full shadow-sm">
-                                            <Switch
-                                                checked={settings.ai_use_system_prompt}
-                                                onCheckedChange={(checked: boolean) => setSettings({ ...settings, ai_use_system_prompt: checked })}
-                                                className="scale-75"
+                            {/* Right: Prompt Cards switcher with unmistakable high-contrast visual cues */}
+                            <div className="lg:col-span-2 flex flex-col gap-4">
+                                {/* Minimal yet Superior Switcher Bar */}
+                                <div className="grid grid-cols-2 p-1.5 bg-secondary/60 border border-border/50 rounded-xl gap-2 shadow-inner">
+                                    <button
+                                        type="button"
+                                        onClick={() => setActivePromptTab('bot')}
+                                        className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-xs font-semibold transition-all duration-200 ${
+                                            activePromptTab === 'bot'
+                                                ? 'bg-blue-500/20 text-blue-400 border border-blue-500/40 shadow-sm'
+                                                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50 border border-transparent'
+                                        }`}
+                                    >
+                                        <Brain className={`w-4 h-4 shrink-0 ${activePromptTab === 'bot' ? 'text-blue-400' : 'opacity-70'}`} />
+                                        <span className="truncate">Bot System Prompt</span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setActivePromptTab('image')}
+                                        className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-xs font-semibold transition-all duration-200 ${
+                                            activePromptTab === 'image'
+                                                ? 'bg-pink-500/20 text-pink-400 border border-pink-500/40 shadow-sm'
+                                                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50 border border-transparent'
+                                        }`}
+                                    >
+                                        <Sparkles className={`w-4 h-4 shrink-0 ${activePromptTab === 'image' ? 'text-pink-400' : 'opacity-70'}`} />
+                                        <span className="truncate">Image Generation Prompt</span>
+                                    </button>
+                                </div>
+
+                                {/* Active Prompt Card Display */}
+                                {activePromptTab === 'bot' ? (
+                                    /* Bot System Prompt Card */
+                                    <Card className="card-glow border-blue-500/30 flex flex-col shadow-sm transition-all" style={{ minHeight: '340px' }}>
+                                        <CardHeader className="pb-3 pt-5 px-5 border-b border-border/30 shrink-0 flex flex-row items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <CardTitle className="text-base font-semibold flex items-center gap-2 text-foreground">
+                                                    <div className="w-6 h-6 rounded-md flex items-center justify-center bg-blue-500/20 shrink-0">
+                                                        <Brain className="w-3.5 h-3.5 text-blue-400" />
+                                                    </div>
+                                                    Bot System Prompt
+                                                </CardTitle>
+                                                <CardDescription className="text-[11px] mt-0.5">Defines the AI persona, tone, and knowledge base for the WhatsApp bot.</CardDescription>
+                                            </div>
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                {license?.isLifetime && (
+                                                    <div className="flex items-center gap-1.5 bg-secondary/30 border border-border/50 px-2.5 py-1.5 rounded-full">
+                                                        <Switch
+                                                            checked={settings.ai_use_system_prompt}
+                                                            onCheckedChange={(checked: boolean) => setSettings({ ...settings, ai_use_system_prompt: checked })}
+                                                            className="scale-75"
+                                                        />
+                                                        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Active</span>
+                                                    </div>
+                                                )}
+                                                <Button
+                                                    variant="ghost" size="sm"
+                                                    className="h-7 px-2 text-[11px] gap-1 text-muted-foreground hover:text-foreground"
+                                                    onClick={() => {
+                                                        if (confirm('Reset bot prompt to default?')) {
+                                                            setSettings((s: any) => ({ ...s, system_prompt: '' }));
+                                                        }
+                                                    }}
+                                                >
+                                                    <RotateCcw className="w-3 h-3" /> Reset
+                                                </Button>
+                                            </div>
+                                        </CardHeader>
+                                        <CardContent className="p-0 flex-1 flex flex-col relative overflow-hidden">
+                                            <Textarea
+                                                className="flex-1 w-full font-mono text-[12px] resize-none border-0 rounded-none bg-secondary/5 p-4 leading-relaxed focus-visible:ring-0 focus-visible:bg-secondary/10 transition-colors overflow-y-auto"
+                                                style={{ minHeight: '320px' }}
+                                                value={settings.system_prompt}
+                                                onChange={e => setSettings({ ...settings, system_prompt: e.target.value })}
+                                                placeholder="You are a helpful assistant for our business..."
                                             />
-                                            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Enabled</span>
-                                        </div>
-                                    )}
-                                </CardHeader>
-                                <CardContent className="p-0 flex-1 flex flex-col relative">
-                                    <Textarea
-                                        className="flex-1 w-full h-full font-mono text-[13px] resize-none border-0 rounded-none bg-secondary/5 p-5 leading-relaxed focus-visible:ring-0 focus-visible:bg-secondary/10 transition-colors"
-                                        value={settings.system_prompt}
-                                        onChange={e => setSettings({ ...settings, system_prompt: e.target.value })}
-                                        placeholder="You are a helpful assistant for our business..."
-                                    />
-                                </CardContent>
-                            </Card>
+                                        </CardContent>
+                                    </Card>
+                                ) : (
+                                    /* Image Generation Prompt Card */
+                                    <Card className="card-glow border-pink-500/30 flex flex-col shadow-sm transition-all" style={{ minHeight: '340px' }}>
+                                        <CardHeader className="pb-3 pt-5 px-5 border-b border-border/30 shrink-0 flex flex-row items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <CardTitle className="text-base font-semibold flex items-center gap-2 text-foreground">
+                                                    <div className="w-6 h-6 rounded-md flex items-center justify-center bg-pink-500/20 shrink-0">
+                                                        <Sparkles className="w-3.5 h-3.5 text-pink-400" />
+                                                    </div>
+                                                    Image Generation Prompt
+                                                </CardTitle>
+                                                <CardDescription className="text-[11px] mt-0.5">Controls how AI generates campaign images. Use <code className="text-[10px] bg-secondary/60 px-1 py-0.5 rounded">{'{{message}}'}</code> to inject the campaign message.</CardDescription>
+                                            </div>
+                                            <Button
+                                                variant="ghost" size="sm"
+                                                className="h-7 px-2 text-[11px] gap-1 text-muted-foreground hover:text-foreground shrink-0"
+                                                onClick={() => {
+                                                    if (confirm('Reset image prompt to default?')) {
+                                                        setSettings((s: any) => ({ ...s, image_generation_prompt: '' }));
+                                                    }
+                                                }}
+                                            >
+                                                <RotateCcw className="w-3 h-3" /> Reset
+                                            </Button>
+                                        </CardHeader>
+                                        <CardContent className="p-0 flex-1 flex flex-col relative overflow-hidden">
+                                            <Textarea
+                                                className="flex-1 w-full font-mono text-[12px] resize-none border-0 rounded-none bg-secondary/5 p-4 leading-relaxed focus-visible:ring-0 focus-visible:bg-secondary/10 transition-colors overflow-y-auto"
+                                                style={{ minHeight: '320px' }}
+                                                value={settings.image_generation_prompt || DEFAULT_IMAGE_PROMPT}
+                                                onChange={e => setSettings({ ...settings, image_generation_prompt: e.target.value })}
+                                                placeholder="Describe how the AI should generate images..."
+                                            />
+                                        </CardContent>
+                                    </Card>
+                                )}
+                            </div>
                         </div>
                     </TabsContent>
 
                     {/* SYSTEM TAB */}
                     <TabsContent value="system" className="mt-0">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                            {/* Anti-Ban Protections */}
+                            <Card className="card-glow border-emerald-500/30 bg-emerald-500/5 shadow-sm md:col-span-2">
+                                <CardHeader className="pb-4 pt-5 px-5 border-b border-border/30">
+                                    <div className="flex items-center justify-between">
+                                        <CardTitle className="text-base flex items-center gap-2.5 font-semibold text-emerald-600 dark:text-emerald-400">
+                                            <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-emerald-500/20">
+                                                <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                                            </div>
+                                            Anti-Ban & Loop Safeguards (Recommended)
+                                        </CardTitle>
+                                        <Switch
+                                            checked={settings.anti_ban_enabled}
+                                            onCheckedChange={checked => setSettings({ ...settings, anti_ban_enabled: checked })}
+                                        />
+                                    </div>
+                                    <CardDescription className="text-[11px] mt-1">
+                                        Protects your WhatsApp account from being restricted or unlinked by simulating human pacing and blocking automated bot loops.
+                                    </CardDescription>
+                                </CardHeader>
+                                {settings.anti_ban_enabled && (
+                                    <CardContent className="p-5 grid grid-cols-1 md:grid-cols-3 gap-5">
+                                        <div className="flex items-center justify-between gap-3 bg-background/50 border border-border/50 rounded-lg p-3 md:col-span-1">
+                                            <div>
+                                                <Label className="text-xs font-semibold text-foreground/90">Ignore Bots & System Chats</Label>
+                                                <p className="text-[10px] text-muted-foreground mt-0.5">Automatically blocks replies to official WhatsApp bots & LID accounts.</p>
+                                            </div>
+                                            <Switch
+                                                checked={settings.anti_ban_ignore_bots}
+                                                onCheckedChange={checked => setSettings({ ...settings, anti_ban_ignore_bots: checked })}
+                                            />
+                                        </div>
+
+                                        <div className="space-y-1.5 bg-background/50 border border-border/50 rounded-lg p-3">
+                                            <Label className="text-xs font-semibold text-foreground/90">Cooldown per Contact (Seconds)</Label>
+                                            <p className="text-[10px] text-muted-foreground">Min wait time between replies to same number (Default: 30s).</p>
+                                            <Input
+                                                type="number"
+                                                min="0"
+                                                max="300"
+                                                value={settings.anti_ban_cooldown_sec}
+                                                onChange={e => setSettings({ ...settings, anti_ban_cooldown_sec: e.target.value })}
+                                                className="bg-secondary/30 font-mono h-8 text-xs mt-1"
+                                            />
+                                        </div>
+
+                                        <div className="space-y-1.5 bg-background/50 border border-border/50 rounded-lg p-3">
+                                            <Label className="text-xs font-semibold text-foreground/90">Typing Delay Range (Seconds)</Label>
+                                            <p className="text-[10px] text-muted-foreground">Randomized human typing delay (Default: 3 to 6s).</p>
+                                            <div className="flex items-center gap-2 mt-1">
+                                                <Input
+                                                    type="number"
+                                                    min="0"
+                                                    max="30"
+                                                    value={settings.anti_ban_typing_delay_min}
+                                                    onChange={e => setSettings({ ...settings, anti_ban_typing_delay_min: e.target.value })}
+                                                    placeholder="Min"
+                                                    className="bg-secondary/30 font-mono h-8 text-xs"
+                                                />
+                                                <span className="text-xs text-muted-foreground">to</span>
+                                                <Input
+                                                    type="number"
+                                                    min="0"
+                                                    max="60"
+                                                    value={settings.anti_ban_typing_delay_max}
+                                                    onChange={e => setSettings({ ...settings, anti_ban_typing_delay_max: e.target.value })}
+                                                    placeholder="Max"
+                                                    className="bg-secondary/30 font-mono h-8 text-xs"
+                                                />
+                                            </div>
+                                        </div>
+                                    </CardContent>
+                                )}
+                            </Card>
 
                             {/* Theme */}
                             <Card className="card-glow border-border/50 shadow-sm">
@@ -287,14 +591,25 @@ export function Settings() {
                                     <CardDescription className="text-[11px] mt-1">Your active subscription details.</CardDescription>
                                 </CardHeader>
                                 <CardContent className="p-5 flex-1 flex flex-col justify-between h-40">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 shrink-0">
-                                            <CheckCircle className="w-5 h-5 text-emerald-500" />
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20 shrink-0">
+                                                <CheckCircle className="w-5 h-5 text-emerald-500" />
+                                            </div>
+                                            <div>
+                                                <div className="text-sm font-bold text-emerald-600 dark:text-emerald-400">Active License</div>
+                                                <div className="text-xs text-muted-foreground font-mono mt-0.5 tracking-wider">{license?.keyMasked || '—'}</div>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <div className="text-sm font-bold text-emerald-600 dark:text-emerald-400">Active License</div>
-                                            <div className="text-xs text-muted-foreground font-mono mt-0.5 tracking-wider">{license?.keyMasked || '—'}</div>
-                                        </div>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={handleDeactivate}
+                                            className="text-xs text-destructive hover:text-destructive hover:bg-destructive/10 h-7 px-2"
+                                            title="Deactivate License"
+                                        >
+                                            <LogOut className="w-3.5 h-3.5" />
+                                        </Button>
                                     </div>
                                     <div className="grid grid-cols-2 gap-3 mt-auto">
                                         <div className="bg-secondary/30 rounded-lg p-2.5 text-center border border-border/40">

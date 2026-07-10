@@ -173,9 +173,9 @@ export default function Home() {
   return (
     <SocketProvider>
       <AppShell>
-        {(activePage) => (
+        {(activePage, setActivePage) => (
           <div className="h-full overflow-y-auto">
-            {activePage === 'dashboard' && <Dashboard />}
+            {activePage === 'dashboard' && <Dashboard onNavigate={setActivePage} />}
             {activePage === 'sessions' && <Sessions />}
             {activePage === 'contacts' && <Contacts />}
             {activePage === 'messaging' && <Campaigns />}

@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Trash2, Edit2, Plus, CalendarClock } from 'lucide-react';
+import { Trash2, Edit2, Plus, CalendarClock, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 
 export function Scheduler() {
@@ -207,11 +207,11 @@ export function Scheduler() {
                                 <Select value={newSchedule.sessionId} onValueChange={v => setNewSchedule({ ...newSchedule, sessionId: v || '' })}>
                                     <SelectTrigger>
                                         <span className="truncate">
-                                            {newSchedule.sessionId ? (sessions.find(s => s.id.toString() === newSchedule.sessionId)?.name || newSchedule.sessionId) : "Select device"}
+                                            {newSchedule.sessionId ? (allSessions.find(s => s.id.toString() === newSchedule.sessionId)?.name || sessions.find(s => s.id.toString() === newSchedule.sessionId)?.name || newSchedule.sessionId) : "Select device"}
                                         </span>
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {sessions.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>)}
+                                        {allSessions.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name || s.id} ({s.phone || s.status})</SelectItem>)}
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -250,8 +250,18 @@ export function Scheduler() {
                                 </Select>
                             </div>
                             <div className="space-y-2">
-                                <Label>Time</Label>
-                                <Input type="time" value={newSchedule.sendTime} onChange={e => setNewSchedule({ ...newSchedule, sendTime: e.target.value })} />
+                                <Label className="flex items-center gap-1.5">
+                                    <Clock className="w-3.5 h-3.5 text-primary" /> Time
+                                </Label>
+                                <div className="relative flex items-center">
+                                    <Clock className="w-4 h-4 text-foreground/80 absolute right-3 pointer-events-none z-10" />
+                                    <Input
+                                        type="time"
+                                        value={newSchedule.sendTime}
+                                        onChange={e => setNewSchedule({ ...newSchedule, sendTime: e.target.value })}
+                                        className="pr-9 [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:cursor-pointer cursor-pointer"
+                                    />
+                                </div>
                             </div>
                         </div>
 

@@ -18,12 +18,12 @@ import {
     Moon,
     ChevronRight
 } from 'lucide-react';
-import { getLicenseStatus, getSessions, getCampaigns } from '@/lib/api';
+import { getLicenseStatus, getSessions, getCampaigns, getVersion } from '@/lib/api';
 import { toast } from 'sonner';
 import { useSocket } from '../providers/socket-provider';
 
 interface AppShellProps {
-    children: (activePage: string) => React.ReactNode;
+    children: (activePage: string, setActivePage: (page: string) => void) => React.ReactNode;
 }
 
 const NAV_ITEMS = [
@@ -45,6 +45,7 @@ export function AppShell({ children }: AppShellProps) {
     const [isOnline, setIsOnline] = useState(false);
     const [isSendingCampaign, setIsSendingCampaign] = useState(false);
     const [isAutoReplyOn, setIsAutoReplyOn] = useState(false);
+    const [appVersion, setAppVersion] = useState<string>('...');
 
     const { socket } = useSocket();
 
@@ -89,6 +90,10 @@ export function AppShell({ children }: AppShellProps) {
     useEffect(() => {
         getLicenseStatus().then((status) => {
             if (status.isLifetime) setHasEasterEgg(true);
+        }).catch(console.error);
+
+        getVersion().then((data) => {
+            if (data && data.version) setAppVersion(data.version);
         }).catch(console.error);
 
         const saved = localStorage.getItem('theme');
@@ -371,7 +376,7 @@ export function AppShell({ children }: AppShellProps) {
                         onClick={() => setActivePage('updates')}
                         className="text-xs px-3 py-1 rounded-full badge-blue font-medium cursor-pointer hover:opacity-80 transition-opacity"
                         title="Check for updates"
-                    >v1.2.0</button>
+                    >v{appVersion}</button>
                 </div>
 
                 {/* Page with transition */}
@@ -384,7 +389,7 @@ export function AppShell({ children }: AppShellProps) {
                         transition={{ duration: 0.22, ease: [0.25, 0.46, 0.45, 0.94] }}
                         className="flex-1 overflow-y-auto"
                     >
-                        {children(activePage)}
+                        {children(activePage, setActivePage)}
                     </motion.div>
                 </AnimatePresence>
             </main>

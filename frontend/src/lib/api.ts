@@ -3,7 +3,7 @@ import axios from 'axios';
 // MOCK API FOR VERCEL SHOWCASE
 const mockDelay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-const DEMO_SETTINGS = {
+const DEMO_SETTINGS: any = {
     theme: 'dark',
     ai_provider: 'gemini',
     ai_model: 'gemini-3.1-pro-preview',
@@ -13,8 +13,15 @@ const DEMO_SETTINGS = {
     system_prompt: 'You are an intelligent, professional, and friendly customer support AI assistant for Srotas...',
     min_delay: '8000',
     max_delay: '18000',
-    gemini_api_key: '',
-    openai_api_key: ''
+    gemini_api_key: 'AIzaSyDEMO-KEY-FOR-SHOWCASE-PURPOSES-ONLY',
+    openai_api_key: '',
+    anti_ban_enabled: true,
+    anti_ban_ignore_bots: true,
+    anti_ban_cooldown_sec: '30',
+    anti_ban_typing_delay_min: '3',
+    anti_ban_typing_delay_max: '6',
+    image_generation_prompt: '',
+    has_company_logo: false
 };
 
 export const getSettings = async () => { await mockDelay(300); return DEMO_SETTINGS; };
@@ -23,6 +30,22 @@ export const checkForUpdate = async () => { await mockDelay(800); return { curre
 export const getVersion = async () => ({ version: '1.2.3' } as any);
 export const getLicenseStatus = async () => { await mockDelay(400); return { activated: true, isLifetime: false, expiryDate: '2026-12-31', daysRemaining: 365, keyMasked: 'DEMO-****-****-2026' }; };
 export const activateLicense = async (key: string) => { await mockDelay(1000); if (key === 'SROTAS-EASTER-EGG-2026' || key.length > 5) return { success: true }; throw new Error('Invalid key'); };
+export const deactivateLicense = async () => { await mockDelay(500); return { success: true }; };
+
+export const uploadCompanyLogo = async (formData: FormData) => { await mockDelay(800); DEMO_SETTINGS.has_company_logo = true; return { success: true }; };
+export const deleteCompanyLogo = async () => { await mockDelay(400); DEMO_SETTINGS.has_company_logo = false; return { success: true }; };
+
+export const generateCampaignImage = async (message: string) => {
+    await mockDelay(2500);
+    const res = await fetch('/icon.png');
+    const blob = await res.blob();
+    const image = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+        reader.readAsDataURL(blob);
+    });
+    return { image, mimetype: blob.type || 'image/png' };
+};
 
 let MOCK_SESSIONS = [
     { id: 'sess_1', name: 'Primary Support', phone: '919876543210', status: 'ready', auto_reply: 1, ai_replies_enabled: 1, quick_replies_enabled: 1 }
@@ -158,10 +181,14 @@ for (let i = 1; i <= 150; i++) {
     const group_name = ['All Customers', 'Premium Users', 'India Region', 'B2B Clients', 'default'][Math.floor(Math.random() * 5)];
     const phonePrefix = ['91', '1', '44', '61', '49'][Math.floor(Math.random() * 5)];
     const phone = phonePrefix + Math.floor(Math.random() * 1000000000).toString().padStart(10, '0');
+    // ~15% of contacts simulate unsaved WhatsApp numbers, resolved only via their synced push name
+    const isUnsaved = i % 7 === 0;
     MOCK_CONTACTS.push({
         id: i,
         phone,
-        name: `${fn} ${ln}`,
+        name: isUnsaved ? phone : `${fn} ${ln}`,
+        pushname: isUnsaved ? `${fn} ${ln}` : '',
+        notify: isUnsaved ? `${fn} ${ln}` : '',
         company,
         group_name,
         custom_fields: '{}',
@@ -169,16 +196,20 @@ for (let i = 1; i <= 150; i++) {
     });
 }
 
-export const getContacts = async (group?: string, search?: string) => {
+export const getContacts = async (group?: string, search?: string, page: number = 1, limit: number = 50) => {
     await mockDelay(400);
     let res = MOCK_CONTACTS;
     if (group && group !== 'All' && group !== 'default') res = res.filter(c => c.group_name === group);
     if (search) res = res.filter(c => c.name.toLowerCase().includes(search.toLowerCase()) || c.phone.includes(search) || c.company.toLowerCase().includes(search.toLowerCase()));
-    return res;
+    const total = res.length;
+    const start = (page - 1) * limit;
+    const contacts = res.slice(start, start + limit);
+    return { contacts, total };
 };
 export const getContactGroups = async () => { await mockDelay(200); return ['default', 'All Customers', 'Premium Users', 'India Region', 'B2B Clients']; };
 export const addContact = async (data: any) => { await mockDelay(400); return { success: true }; };
 export const deleteContact = async (id: string) => { await mockDelay(300); return { success: true }; };
+export const bulkDeleteContacts = async (contactIds: string[]) => { await mockDelay(500); return { success: true, count: contactIds.length }; };
 export const deleteContactGroup = async (name: string) => { await mockDelay(500); return { success: true }; };
 export const importContacts = async (contacts: any[], group: string) => { await mockDelay(800); return { success: true, count: contacts.length }; };
 export const moveToGroup = async (contactIds: string[], group: string, copy: boolean) => { await mockDelay(500); return { success: true, count: contactIds.length }; };
@@ -187,11 +218,11 @@ export const getWhatsAppGroups = async (sessionId: string) => { await mockDelay(
 export const grabGroupContacts = async (sessionId: string, groupId: string) => { await mockDelay(1500); return [{ phone: '919000000003', name: 'Group Member 1', isMyContact: false }]; };
 
 let MOCK_CAMPAIGNS: any[] = [
-    { id: 5, name: 'Product Launch', session_name: 'Sales Team', group_name: 'All Customers', status: 'completed', total: 4585, sent: 4500, failed: 85, started_at: new Date(Date.now() - 86400000 * 15).toISOString(), messages: [] },
-    { id: 4, name: 'Flash Sale Reminder', session_name: 'Primary Support', group_name: 'VIP tier', status: 'completed', total: 201, sent: 200, failed: 1, started_at: new Date(Date.now() - 86400000 * 2).toISOString(), messages: [] },
-    { id: 3, name: 'Weekend Newsletter', session_name: 'Primary Support', group_name: 'All Customers', status: 'completed', total: 825, sent: 800, failed: 25, started_at: new Date(Date.now() - 86400000 * 5).toISOString(), messages: [] },
-    { id: 2, name: 'New Feature Announcement', session_name: 'Primary Support', group_name: 'Premium Users', status: 'completed', total: 1205, sent: 1200, failed: 5, started_at: new Date(Date.now() - 86400000 * 10).toISOString(), messages: [] },
-    { id: 1, name: 'Diwali Offer', session_name: 'Sales Team', group_name: 'All Customers', status: 'completed', total: 5020, sent: 5000, failed: 20, started_at: new Date(Date.now() - 86400000 * 20).toISOString(), messages: [] }
+    { id: 5, name: 'Product Launch', session_id: 'sess_1', session_name: 'Sales Team', group_name: 'All Customers', status: 'completed', total: 4585, sent: 4500, failed: 85, started_at: new Date(Date.now() - 86400000 * 15).toISOString(), messages: [] },
+    { id: 4, name: 'Flash Sale Reminder', session_id: 'sess_1', session_name: 'Primary Support', group_name: 'VIP tier', status: 'completed', total: 201, sent: 200, failed: 1, started_at: new Date(Date.now() - 86400000 * 2).toISOString(), messages: [] },
+    { id: 3, name: 'Weekend Newsletter', session_id: 'sess_1', session_name: 'Primary Support', group_name: 'All Customers', status: 'completed', total: 825, sent: 800, failed: 25, started_at: new Date(Date.now() - 86400000 * 5).toISOString(), messages: [] },
+    { id: 2, name: 'New Feature Announcement', session_id: 'sess_1', session_name: 'Primary Support', group_name: 'Premium Users', status: 'completed', total: 1205, sent: 1200, failed: 5, started_at: new Date(Date.now() - 86400000 * 10).toISOString(), messages: [] },
+    { id: 1, name: 'Diwali Offer', session_id: 'sess_1', session_name: 'Sales Team', group_name: 'All Customers', status: 'completed', total: 5020, sent: 5000, failed: 20, started_at: new Date(Date.now() - 86400000 * 20).toISOString(), messages: [] }
 ];
 
 export const getCampaigns = async () => {
@@ -202,7 +233,7 @@ export const getCampaigns = async () => {
 export const getCampaign = async (id: string) => {
     await mockDelay(300);
     const c = MOCK_CAMPAIGNS.find(x => x.id === parseInt(id));
-    if (!c) return { id: parseInt(id), name: 'Demo Campaign', session_name: 'Primary Support', group_name: 'All Customers', status: 'completed', total: 5020, sent: 5000, failed: 20, template: 'Hello {{name}}', messages: [], errorBreakdown: [{ error: "Invalid number", count: 15 }, { error: "Timeout", count: 5 }], started_at: new Date().toISOString() };
+    if (!c) return { id: parseInt(id), name: 'Demo Campaign', session_id: 'sess_1', session_name: 'Primary Support', group_name: 'All Customers', status: 'completed', total: 5020, sent: 5000, failed: 20, template: 'Hello {{name}}', messages: [], errorBreakdown: [{ error: "Invalid number", count: 15 }, { error: "Timeout", count: 5 }], started_at: new Date().toISOString() };
 
     const errorBreakdown = c.failed > 0 ? [{ error: "Simulated Timeout/Invalid Number", count: c.failed }] : [];
     return { ...c, template: 'Hello {{name}}, this is a mock campaign preview.', errorBreakdown };

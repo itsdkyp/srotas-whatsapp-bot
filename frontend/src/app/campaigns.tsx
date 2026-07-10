@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { getSessions, getGroups, getTemplates, sendBulkMessages, uploadMedia, getCampaigns, getCampaign, retryCampaign, restartCampaign, deleteCampaign, getContacts } from '@/lib/api';
+import { getSessions, getGroups, getTemplates, sendBulkMessages, uploadMedia, getCampaigns, getCampaign, retryCampaign, restartCampaign, deleteCampaign, getContacts, getSettings, generateCampaignImage } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,12 +13,48 @@ import { useSocket } from '@/components/providers/socket-provider';
 import { toast } from 'sonner';
 import {
     Upload, X, Loader2, CheckCircle, Plus, BarChart3,
-    RefreshCw, Trash2, RotateCcw, Rocket, ArrowLeft, Clock, Users, Megaphone, Smartphone, FileText
+    RefreshCw, Trash2, RotateCcw, Rocket, ArrowLeft, Clock, Users, Megaphone, Smartphone, FileText, Sparkles, Eye
 } from 'lucide-react';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogPortal, DialogOverlay } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 const ease = [0.25, 0.46, 0.45, 0.94] as const;
+
+const safeFormatDate = (dateStr: any): string => {
+    if (!dateStr) return '—';
+    try {
+        let cleanStr = typeof dateStr === 'string' ? dateStr.replace(' ', 'T') : dateStr;
+        if (typeof cleanStr === 'string' && !cleanStr.endsWith('Z') && !cleanStr.includes('+')) {
+            cleanStr += 'Z';
+        }
+        const d = new Date(cleanStr);
+        if (isNaN(d.getTime())) {
+            const d2 = new Date(dateStr);
+            return isNaN(d2.getTime()) ? '—' : d2.toLocaleString();
+        }
+        return d.toLocaleString();
+    } catch {
+        return '—';
+    }
+};
+
+const safeFormatTime = (dateStr: any): string => {
+    if (!dateStr) return '—';
+    try {
+        let cleanStr = typeof dateStr === 'string' ? dateStr.replace(' ', 'T') : dateStr;
+        if (typeof cleanStr === 'string' && !cleanStr.endsWith('Z') && !cleanStr.includes('+')) {
+            cleanStr += 'Z';
+        }
+        const d = new Date(cleanStr);
+        if (isNaN(d.getTime())) {
+            const d2 = new Date(dateStr);
+            return isNaN(d2.getTime()) ? '—' : d2.toLocaleTimeString();
+        }
+        return d.toLocaleTimeString();
+    } catch {
+        return '—';
+    }
+};
 
 export function Campaigns() {
     const [sessions, setSessions] = useState<any[]>([]);
@@ -37,7 +73,34 @@ export function Campaigns() {
     const [minDelay, setMinDelay] = useState(8000);
     const [maxDelay, setMaxDelay] = useState(18000);
     const [files, setFiles] = useState<File[]>([]);
+    const [templateMediaUrls, setTemplateMediaUrls] = useState<string[]>([]);
     const [buttons, setButtons] = useState<{ label: string, response: string }[]>([]);
+    const [geminiKeySet, setGeminiKeySet] = useState(false);
+    const [generatingImage, setGeneratingImage] = useState(false);
+
+    const getTemplateMediaUrls = (t: any): string[] => {
+        if (!t) return [];
+        let rawUrls: string[] = [];
+        if (Array.isArray(t.media_paths)) rawUrls = t.media_paths;
+        else if (typeof t.media_paths === 'string' && t.media_paths.trim()) {
+            try {
+                const parsed = JSON.parse(t.media_paths);
+                if (Array.isArray(parsed)) rawUrls = parsed;
+                else if (typeof parsed === 'string') rawUrls = [parsed];
+            } catch (e) {
+                rawUrls = [t.media_paths];
+            }
+        } else if (typeof t.media_path === 'string' && t.media_path.trim()) {
+            rawUrls = [t.media_path];
+        }
+        return rawUrls.map(url => {
+            if (!url || typeof url !== 'string') return '';
+            if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:') || url.startsWith('data:')) return url;
+            const filename = url.split(/[/\\]/).pop();
+            if (!filename) return '';
+            return `/api/media/file/${filename}`;
+        }).filter(Boolean);
+    };
 
     const [previewContact, setPreviewContact] = useState<any>(null);
 
@@ -52,8 +115,10 @@ export function Campaigns() {
     const [selectedCampaign, setSelectedCampaign] = useState<any>(null);
     // Track if the currently-viewed analytics campaign is the live/running one
     const [liveAnalyticsCampaignId, setLiveAnalyticsCampaignId] = useState<number | null>(null);
+    const [previewFile, setPreviewFile] = useState<{ url: string; name: string } | File | null>(null);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const messageInputRef = useRef<HTMLTextAreaElement>(null);
     const { socket } = useSocket();
 
     const loadData = () => {
@@ -71,12 +136,16 @@ export function Campaigns() {
             .catch(console.error);
     };
 
-    useEffect(() => { loadData(); }, []);
+    useEffect(() => {
+        loadData();
+        getSettings().then(s => setGeminiKeySet(!!s.gemini_api_key)).catch(() => setGeminiKeySet(false));
+    }, []);
 
     useEffect(() => {
         if (selectedGroup) {
             getContacts(selectedGroup).then(c => {
-                if (c && c.length > 0) setPreviewContact(c[0]);
+                const list = Array.isArray(c) ? c : (c.contacts || []);
+                if (list.length > 0) setPreviewContact(list[0]);
                 else setPreviewContact(null);
             }).catch(() => setPreviewContact(null));
         } else {
@@ -136,12 +205,46 @@ export function Campaigns() {
 
     const handleTemplateSelect = (id: string) => {
         setSelectedTemplate(id);
-        if (!id) return setMessage('');
+        if (!id || id === 'none') {
+            setMessage('');
+            setTemplateMediaUrls([]);
+            return;
+        }
         const t = templates.find(x => x.id.toString() === id);
         if (t) {
             setMessage(t.content);
             try { setButtons(t.buttons_config ? JSON.parse(t.buttons_config) : []); } catch { setButtons([]); }
+            setTemplateMediaUrls(getTemplateMediaUrls(t));
+        } else {
+            setTemplateMediaUrls([]);
         }
+    };
+
+    const insertTagAtCursor = (tag: string) => {
+        const textarea = messageInputRef.current;
+        if (!textarea) {
+            setMessage(prev => prev + ` {{${tag}}} `);
+            return;
+        }
+        const start = textarea.selectionStart ?? message.length;
+        const end = textarea.selectionEnd ?? message.length;
+        const text = message || '';
+        const before = text.substring(0, start);
+        const after = text.substring(end);
+
+        const placeholder = `{{${tag}}}`;
+        const leadingSpace = before.length > 0 && !before.endsWith(' ') && !before.endsWith('\n') ? ' ' : '';
+        const trailingSpace = after.length > 0 && !after.startsWith(' ') && !after.startsWith('\n') && !/^[.,!?;:)]/.test(after) ? ' ' : '';
+        const insertion = `${leadingSpace}${placeholder}${trailingSpace}`;
+
+        const newText = `${before}${insertion}${after}`;
+        setMessage(newText);
+
+        setTimeout(() => {
+            textarea.focus();
+            const newPos = start + insertion.length;
+            textarea.setSelectionRange(newPos, newPos);
+        }, 0);
     };
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -149,6 +252,27 @@ export function Campaigns() {
             const newFiles = Array.from(e.target.files);
             if (files.length + newFiles.length > 10) return toast.error('Maximum 10 files allowed');
             setFiles(prev => [...prev, ...newFiles]);
+        }
+    };
+
+    const handleGenerateImage = async () => {
+        if (!message.trim()) return toast.error('Write the campaign message first — the image is generated from it');
+        if (files.length >= 10) return toast.error('Maximum 10 files allowed');
+        setGeneratingImage(true);
+        try {
+            const res = await generateCampaignImage(message);
+            const byteChars = atob(res.image);
+            const bytes = new Uint8Array(byteChars.length);
+            for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+            const ext = (res.mimetype || 'image/png').split('/')[1] || 'png';
+            const file = new File([bytes], `ai-image-${Date.now()}.${ext}`, { type: res.mimetype || 'image/png' });
+            // Put first so it becomes the captioned media in the campaign
+            setFiles(prev => [file, ...prev]);
+            toast.success('Image generated — check the preview');
+        } catch (error: any) {
+            toast.error(error.response?.data?.error || 'Failed to generate image');
+        } finally {
+            setGeneratingImage(false);
         }
     };
 
@@ -172,7 +296,7 @@ export function Campaigns() {
     const handleSend = async () => {
         if (!selectedSession) return toast.error('Select a WhatsApp session');
         if (!selectedGroup) return toast.error('Select a target group');
-        if (!message.trim() && files.length === 0) return toast.error('Message or media is required');
+        if (!message.trim() && files.length === 0 && templateMediaUrls.length === 0) return toast.error('Message or media is required');
 
         await startSending(async () => {
             let uploadedPaths: string[] = [];
@@ -188,7 +312,7 @@ export function Campaigns() {
                 group: selectedGroup,
                 template: message,
                 minDelay, maxDelay,
-                mediaPaths: uploadedPaths.length > 0 ? uploadedPaths : null,
+                mediaPaths: uploadedPaths.length > 0 ? uploadedPaths : (templateMediaUrls.length > 0 ? templateMediaUrls : null),
                 buttons: buttons.length > 0 ? buttons : null,
                 name: campaignName.trim() || undefined
             });
@@ -196,6 +320,7 @@ export function Campaigns() {
             // Reset form
             setMessage('');
             setFiles([]);
+            setTemplateMediaUrls([]);
             setCampaignName('');
             setSelectedTemplate('');
         });
@@ -205,6 +330,7 @@ export function Campaigns() {
         try {
             const data = await getCampaign(id.toString());
             setSelectedCampaign(data);
+            if (data?.session_id) setSelectedSession(data.session_id.toString());
             setAnalyticsOpen(true);
         } catch { toast.error('Failed to load campaign data'); }
     };
@@ -348,7 +474,7 @@ export function Campaigns() {
                                                 </div>
                                                 <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
                                                     <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5" /> {c.group_name || '—'}</span>
-                                                    <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> {new Date(c.started_at).toLocaleString()}</span>
+                                                    <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> {safeFormatDate(c.started_at)}</span>
                                                     <span className="flex items-center gap-1"><Smartphone className="w-3.5 h-3.5" /> {sessionName}</span>
                                                 </div>
                                             </div>
@@ -387,8 +513,13 @@ export function Campaigns() {
                                                         />
                                                     </div>
                                                 </div>
-                                                <Button variant="outline" size="sm" onClick={() => openAnalytics(c.id)} className="gap-1.5 text-xs h-8">
-                                                    <BarChart3 className="w-3.5 h-3.5" /> Analytics
+                                                <Button
+                                                    variant="secondary"
+                                                    size="sm"
+                                                    onClick={() => openAnalytics(c.id)}
+                                                    className="gap-1.5 text-xs h-8 bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 font-semibold border border-blue-500/30 rounded-lg shadow-sm transition-all"
+                                                >
+                                                    <BarChart3 className="w-3.5 h-3.5 text-blue-400" /> Analytics
                                                 </Button>
                                                 <Button variant="ghost" size="sm" onClick={() => handleDelete(c.id)}
                                                     className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0">
@@ -443,12 +574,12 @@ export function Campaigns() {
                                 <Select value={selectedSession} onValueChange={(v) => setSelectedSession(v || '')}>
                                     <SelectTrigger className="bg-secondary/50">
                                         <span className="truncate">
-                                            {selectedSession ? (sessions.find(s => s.id.toString() === selectedSession)?.name || selectedSession) : "Select device"}
+                                            {selectedSession ? (allSessions.find(s => s.id.toString() === selectedSession)?.name || sessions.find(s => s.id.toString() === selectedSession)?.name || selectedSession) : "Select device"}
                                         </span>
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {sessions.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name} (+{s.phone})</SelectItem>)}
-                                        {sessions.length === 0 && <SelectItem value="none" disabled>No ready devices</SelectItem>}
+                                        {allSessions.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name || s.id} ({s.phone || s.status})</SelectItem>)}
+                                        {allSessions.length === 0 && <SelectItem value="none" disabled>No ready devices</SelectItem>}
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -489,33 +620,58 @@ export function Campaigns() {
                 <div className="lg:col-span-2 space-y-5">
                     <Card className="card-glow">
                         <div className="h-0.5" style={{ background: 'linear-gradient(90deg,#8b5cf6,transparent)' }} />
-                        <CardHeader className="pb-3 flex flex-row items-center justify-between">
+                        <CardHeader className="pb-3">
                             <div>
                                 <CardTitle className="text-sm">Message Content</CardTitle>
-                                <CardDescription className="text-xs">Write or select a template to send.</CardDescription>
+                                <CardDescription className="text-xs">Write your message from scratch or select a saved template.</CardDescription>
                             </div>
-                            {templates.length > 0 && (
-                                <div className="w-[180px]">
-                                    <Select value={selectedTemplate} onValueChange={(v) => handleTemplateSelect(v || '')}>
-                                        <SelectTrigger className="h-8 text-xs bg-secondary/50"><SelectValue placeholder="Load Template" /></SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="none">Write from scratch</SelectItem>
-                                            {templates.map(t => <SelectItem key={t.id} value={t.id.toString()}>{t.name}</SelectItem>)}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            )}
                         </CardHeader>
                         <CardContent className="space-y-5">
+                            {templates.length > 0 && (
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-secondary/40 dark:bg-secondary/20 border border-border/80 shadow-sm">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="p-2 rounded-lg bg-primary/15 text-primary">
+                                            <FileText className="w-4 h-4" />
+                                        </div>
+                                        <div>
+                                            <h4 className="text-xs font-semibold tracking-wide text-foreground">Load Saved Template</h4>
+                                            <p className="text-[11px] text-muted-foreground">Quickly populate message and attachments</p>
+                                        </div>
+                                    </div>
+                                    <div className="w-full sm:w-[250px] shrink-0">
+                                        <Select value={selectedTemplate} onValueChange={(v) => handleTemplateSelect(v || '')}>
+                                            <SelectTrigger className="h-9 text-xs font-medium bg-background dark:bg-card border border-border/90 hover:border-primary/60 shadow-sm transition-all text-foreground">
+                                                <div className="flex items-center gap-2 truncate">
+                                                    <Sparkles className="w-3.5 h-3.5 text-primary shrink-0" />
+                                                    <span className="truncate">
+                                                        {selectedTemplate && selectedTemplate !== 'none'
+                                                            ? (templates.find(t => t.id.toString() === selectedTemplate)?.name || selectedTemplate)
+                                                            : "Load Template..."}
+                                                    </span>
+                                                </div>
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="none" className="font-medium text-muted-foreground">✨ Write from scratch</SelectItem>
+                                                {templates.map(t => (
+                                                    <SelectItem key={t.id} value={t.id.toString()} className="font-medium">
+                                                        {t.name}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+                            )}
                             <div className="space-y-2">
                                 <Label className="text-xs uppercase tracking-wider text-muted-foreground">Message Body</Label>
-                                <Textarea rows={7} placeholder="Hello {{name}}, welcome to {{company}}!" value={message}
+                                <Textarea ref={messageInputRef} rows={7} placeholder="Hello {{name}}, welcome to {{company}}!" value={message}
                                     onChange={e => setMessage(e.target.value)} className="resize-y bg-secondary/30 border-border/60" />
                                 <div className="flex gap-2 flex-wrap pt-1">
                                     <span className="text-xs text-muted-foreground self-center">Placeholders:</span>
                                     {['name', 'phone', 'company'].map(tag => (
-                                        <Button key={tag} variant="secondary" size="sm" className="h-6 text-xs px-2"
-                                            onClick={() => setMessage(prev => prev + ` {{${tag}}} `)}>
+                                        <Button key={tag} type="button" variant="secondary" size="sm" className="h-6 text-xs px-2"
+                                            onMouseDown={e => e.preventDefault()}
+                                            onClick={() => insertTagAtCursor(tag)}>
                                             {`{{${tag}}}`}
                                         </Button>
                                     ))}
@@ -534,15 +690,29 @@ export function Campaigns() {
                                         <div className="mt-auto"></div>
 
                                         {/* First bubble: First file + Text */}
-                                        {(files.length > 0 || message) && (
+                                        {(files.length > 0 || templateMediaUrls.length > 0 || message) && (
                                             <div className="bg-white dark:bg-[#005c4b] p-2.5 rounded-lg rounded-tr-none shadow-sm max-w-[90%] self-end relative flex flex-col gap-1.5">
-                                                {files.length > 0 && (
+                                                {(files.length > 0 || templateMediaUrls.length > 0) && (
                                                     <div className="relative rounded-md overflow-hidden bg-black/5 border border-border/10">
-                                                        {files[0].type.startsWith('image/') ? (
-                                                            <img src={URL.createObjectURL(files[0])} alt="preview" className="w-full h-auto object-cover max-h-[200px] rounded-md" />
+                                                        {files.length > 0 ? (
+                                                            files[0].type.startsWith('image/') ? (
+                                                                <div className="relative cursor-pointer group/img" onClick={() => setPreviewFile(files[0])}>
+                                                                    <img src={URL.createObjectURL(files[0])} alt="preview" className="w-full h-auto object-cover max-h-[200px] rounded-md hover:opacity-90 transition-opacity" />
+                                                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-1 text-white text-xs font-semibold">
+                                                                        <Eye className="w-4 h-4" /> Click to view
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground bg-secondary/40 rounded-md">
+                                                                    <FileText className="w-4 h-4" /> {files[0].name}
+                                                                </div>
+                                                            )
                                                         ) : (
-                                                            <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground bg-secondary/40 rounded-md">
-                                                                <FileText className="w-4 h-4" /> {files[0].name}
+                                                            <div className="relative cursor-pointer group/img" onClick={() => setPreviewFile({ url: templateMediaUrls[0], name: 'Attached Template Image' })}>
+                                                                <img src={templateMediaUrls[0]} alt="preview" className="w-full h-auto object-cover max-h-[200px] rounded-md hover:opacity-90 transition-opacity" />
+                                                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-1 text-white text-xs font-semibold">
+                                                                    <Eye className="w-4 h-4" /> Click to view
+                                                                </div>
                                                             </div>
                                                         )}
                                                     </div>
@@ -559,7 +729,7 @@ export function Campaigns() {
                                                 </div>
                                             </div>
                                         )}
-                                        {!message && files.length === 0 && (
+                                        {!message && files.length === 0 && templateMediaUrls.length === 0 && (
                                             <div className="bg-white dark:bg-[#005c4b] p-2.5 rounded-lg rounded-tr-none shadow-sm max-w-[90%] self-end relative">
                                                 <span className="text-muted-foreground italic text-sm px-1">Type a message...</span>
                                             </div>
@@ -570,7 +740,12 @@ export function Campaigns() {
                                             <div key={i} className="bg-white dark:bg-[#005c4b] p-1.5 rounded-lg rounded-tr-none shadow-sm max-w-[90%] self-end relative">
                                                 <div className="relative rounded-md overflow-hidden bg-black/5 border border-border/10">
                                                     {f.type.startsWith('image/') ? (
-                                                        <img src={URL.createObjectURL(f)} alt="preview" className="w-full h-auto object-cover max-h-[200px] rounded-md" />
+                                                        <div className="relative cursor-pointer group/img" onClick={() => setPreviewFile(f)}>
+                                                            <img src={URL.createObjectURL(f)} alt="preview" className="w-full h-auto object-cover max-h-[200px] rounded-md hover:opacity-90 transition-opacity" />
+                                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-1 text-white text-xs font-semibold">
+                                                                <Eye className="w-4 h-4" /> Click to view
+                                                            </div>
+                                                        </div>
                                                     ) : (
                                                         <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground bg-secondary/40 rounded-md">
                                                             <FileText className="w-4 h-4" /> {f.name}
@@ -587,7 +762,7 @@ export function Campaigns() {
 
                                 <div className="space-y-3">
                                     <Label className="flex justify-between items-center text-xs uppercase tracking-wider text-muted-foreground">
-                                        <span>Media Attachments</span><span>{files.length}/10</span>
+                                        <span>Media Attachments</span><span>{files.length || templateMediaUrls.length}/10</span>
                                     </Label>
                                     <div onClick={() => fileInputRef.current?.click()}
                                         className="border-2 border-dashed border-border/50 rounded-xl p-5 text-center cursor-pointer hover:bg-secondary/30 hover:border-primary/40 transition-all bg-secondary/10">
@@ -597,14 +772,54 @@ export function Campaigns() {
                                     </div>
                                     <input type="file" multiple ref={fileInputRef} className="hidden" onChange={handleFileChange}
                                         accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx" />
-                                    {files.length > 0 && (
+                                    {geminiKeySet && (
+                                        <Button
+                                            variant="outline"
+                                            onClick={handleGenerateImage}
+                                            disabled={generatingImage || !message.trim()}
+                                            className="w-full gap-2 border-purple-500/40 text-purple-400 hover:bg-purple-500/10 hover:text-purple-300"
+                                        >
+                                            {generatingImage
+                                                ? <><Loader2 className="w-4 h-4 animate-spin" /> Generating image…</>
+                                                : <><Sparkles className="w-4 h-4" /> Generate Image with AI</>}
+                                        </Button>
+                                    )}
+                                    {(files.length > 0 || templateMediaUrls.length > 0) && (
                                         <div className="space-y-1.5">
                                             {files.map((file, idx) => (
-                                                <div key={idx} className="flex items-center justify-between p-2 bg-secondary/40 rounded-lg text-xs border border-border/40">
-                                                    <span className="truncate pr-3 font-medium">{file.name}</span>
+                                                <div key={idx} className="flex items-center justify-between p-2 bg-secondary/40 rounded-lg text-xs border border-border/40 group">
+                                                    <div className="flex items-center gap-1.5 truncate pr-2 min-w-0">
+                                                        {file.type.startsWith('image/') ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setPreviewFile(file)}
+                                                                className="flex items-center gap-1.5 truncate text-left hover:text-primary transition-colors cursor-pointer"
+                                                            >
+                                                                <Eye className="w-3 h-3 flex-shrink-0 opacity-60 group-hover:opacity-100 text-primary" />
+                                                                <span className="truncate font-medium">{file.name}</span>
+                                                            </button>
+                                                        ) : (
+                                                            <span className="truncate font-medium flex items-center gap-1.5">
+                                                                <FileText className="w-3 h-3 flex-shrink-0 opacity-60" />
+                                                                {file.name}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                     <button onClick={() => setFiles(prev => prev.filter((_, i) => i !== idx))}
                                                         className="w-4 h-4 rounded-full flex items-center justify-center text-muted-foreground hover:text-destructive flex-shrink-0">
                                                         <X className="w-3 h-3" />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                            {files.length === 0 && templateMediaUrls.map((mediaUrl, idx) => (
+                                                <div key={`template-media-${idx}`} className="flex items-center justify-between p-2 bg-secondary/40 rounded-lg text-xs border border-border/40 group">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setPreviewFile({ url: mediaUrl, name: 'Attached Template Image' })}
+                                                        className="flex items-center gap-1.5 truncate text-left hover:text-primary transition-colors cursor-pointer w-full"
+                                                    >
+                                                        <Eye className="w-3 h-3 flex-shrink-0 opacity-60 group-hover:opacity-100 text-primary" />
+                                                        <span className="truncate font-medium">Saved Template Image</span>
                                                     </button>
                                                 </div>
                                             ))}
@@ -716,7 +931,7 @@ export function Campaigns() {
                                         {selectedCampaign.name || `Campaign #${selectedCampaign.id}`}
                                     </h2>
                                     <p className="text-xs text-muted-foreground mt-0.5">
-                                        {new Date(selectedCampaign.started_at).toLocaleString()} · {selectedCampaign.group_name} · {allSessions.find(s => s.id === selectedCampaign.session_id)?.name || selectedCampaign.session_id || 'Unknown Device'}
+                                        {safeFormatDate(selectedCampaign.started_at)} · {selectedCampaign.group_name} · {allSessions.find(s => s.id === selectedCampaign.session_id)?.name || selectedCampaign.session_id || 'Unknown Device'}
                                         {isLiveRunning && (
                                             <span className="ml-2 inline-flex items-center gap-1 text-primary">
                                                 <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse inline-block" />
@@ -728,11 +943,37 @@ export function Campaigns() {
                                 <div className="flex items-center gap-2 flex-shrink-0 ml-4">
                                     {!isLiveRunning && (
                                         <>
-                                            <Button variant="outline" size="sm" onClick={() => handleRetry(selectedCampaign.id)} className="gap-1.5 text-xs h-8">
-                                                <RefreshCw className="w-3.5 h-3.5" /> Retry Failed
+                                            <div className="w-44">
+                                                <Select value={selectedSession} onValueChange={(v) => setSelectedSession(v || '')}>
+                                                    <SelectTrigger className="h-8 text-xs bg-muted/30 border-border/60">
+                                                        <span className="truncate">
+                                                            {selectedSession ? (allSessions.find(s => s.id.toString() === selectedSession)?.name || sessions.find(s => s.id.toString() === selectedSession)?.name || selectedSession) : "Select device to send"}
+                                                        </span>
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {allSessions.map(s => (
+                                                            <SelectItem key={s.id} value={s.id.toString()}>
+                                                                {s.name || s.id} ({s.phone || s.status})
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <Button
+                                                variant="secondary"
+                                                size="sm"
+                                                onClick={() => handleRetry(selectedCampaign.id)}
+                                                className="gap-1.5 text-xs h-8 bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 font-semibold border border-amber-500/30 rounded-lg shadow-sm transition-all"
+                                            >
+                                                <RefreshCw className="w-3.5 h-3.5 text-amber-400" /> Retry Failed
                                             </Button>
-                                            <Button variant="outline" size="sm" onClick={() => handleRestart(selectedCampaign.id)} className="gap-1.5 text-xs h-8">
-                                                <RotateCcw className="w-3.5 h-3.5" /> Restart
+                                            <Button
+                                                variant="secondary"
+                                                size="sm"
+                                                onClick={() => handleRestart(selectedCampaign.id)}
+                                                className="gap-1.5 text-xs h-8 bg-purple-500/15 hover:bg-purple-500/25 text-purple-400 font-semibold border border-purple-500/30 rounded-lg shadow-sm transition-all"
+                                            >
+                                                <RotateCcw className="w-3.5 h-3.5 text-purple-400" /> Restart
                                             </Button>
                                             <Button variant="ghost" size="sm" onClick={() => handleDelete(selectedCampaign.id)}
                                                 className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10">
@@ -853,7 +1094,7 @@ export function Campaigns() {
                                                                 </span>
                                                                 {m.error_message && <p className="text-[10px] text-red-400 mt-0.5 max-w-[180px] truncate">{m.error_message}</p>}
                                                             </TableCell>
-                                                            <TableCell className="text-xs text-muted-foreground">{new Date(m.created_at).toLocaleTimeString()}</TableCell>
+                                                            <TableCell className="text-xs text-muted-foreground">{safeFormatTime(m.sent_at || m.created_at || selectedCampaign?.started_at)}</TableCell>
                                                         </TableRow>
                                                     ))}
                                                 </TableBody>
@@ -866,6 +1107,40 @@ export function Campaigns() {
                     )}
                 </DialogContent>
             </Dialog>
+
+            {/* ─── Image Preview Lightbox ───────────────────────────────── */}
+            {!!previewFile && (
+                <Dialog open={!!previewFile} onOpenChange={(open) => { if (!open) setPreviewFile(null); }}>
+                    <DialogPortal>
+                        <DialogOverlay />
+                        <div
+                            className="fixed top-1/2 left-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-[95vw] max-w-5xl overflow-hidden rounded-xl border border-border shadow-2xl"
+                            style={{ background: 'var(--card)', backdropFilter: 'blur(12px)' }}
+                        >
+                            {/* Header */}
+                            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-secondary/40">
+                                <span className="text-sm text-foreground font-medium truncate max-w-[80%]">
+                                    {previewFile instanceof File ? previewFile.name : (previewFile as any).name}
+                                </span>
+                                <button
+                                    onClick={() => setPreviewFile(null)}
+                                    className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
+                            {/* Image */}
+                            <div className="flex items-center justify-center bg-secondary/20" style={{ minHeight: '50vh', maxHeight: '85vh', overflow: 'hidden' }}>
+                                <img
+                                    src={previewFile instanceof File ? URL.createObjectURL(previewFile) : (previewFile as any).url}
+                                    alt={previewFile instanceof File ? previewFile.name : (previewFile as any).name}
+                                    style={{ maxHeight: '85vh', width: '100%', objectFit: 'contain' }}
+                                />
+                            </div>
+                        </div>
+                    </DialogPortal>
+                </Dialog>
+            )}
         </div>
     );
 }
