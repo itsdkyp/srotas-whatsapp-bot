@@ -14,6 +14,15 @@ if (process.argv.includes('--run-server')) {
             process.env.APP_USER_DATA_PATH = app.getPath('userData');
         } catch (e) {}
     }
+    // This process is a headless copy of the packaged app spawned just to run
+    // the server — on macOS it still gets a Dock icon by default since it's
+    // launched from the same .app bundle, so hide it explicitly.
+    if (process.platform === 'darwin') {
+        try {
+            const { app } = require('electron');
+            if (app.dock) app.dock.hide();
+        } catch (e) {}
+    }
     // Run the server and stop Electron from initializing the UI
     require('./server.js');
     return;

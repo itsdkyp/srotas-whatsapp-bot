@@ -1,6 +1,6 @@
 # 🤖 Srotas WhatsApp Bot
 
-**v1.3.0** · A high-performance, full-stack WhatsApp automation and marketing platform powered by a modern dark-themed web dashboard. Built on top of lightweight WebSocket technology (**Baileys Engine**), it eliminates heavy browser overhead while delivering enterprise-grade multi-account management, bulk messaging, scheduled campaigns, and AI-powered conversational auto-replies.
+**v1.3.1** · A high-performance, full-stack WhatsApp automation and marketing platform powered by a modern dark-themed web dashboard. Built on top of lightweight WebSocket technology (**Baileys Engine**), it eliminates heavy browser overhead while delivering enterprise-grade multi-account management, bulk messaging, scheduled campaigns, and AI-powered conversational auto-replies.
 
 ---
 
@@ -34,12 +34,12 @@ Choose the method that best fits your workflow:
 Download the latest standalone installer from the [GitHub Releases page](https://github.com/itsdkyp/srotas-whatsapp-bot/releases/latest).
 
 ### Windows
-1. Download `Srotas.WhatsApp.Bot.Setup.1.3.0.exe`.
+1. Download `Srotas.WhatsApp.Bot.Setup.1.3.1.exe`.
 2. Run the installer and follow the setup wizard.
 3. Launch **Srotas WhatsApp Bot** from your Desktop or Start Menu. The built-in background server starts automatically and opens the dashboard in your browser.
 
 ### macOS
-1. Download `Srotas.WhatsApp.Bot-1.3.0-arm64.dmg` (Apple Silicon M1/M2/M3) or the universal `.dmg` / `.pkg`.
+1. Download `Srotas.WhatsApp.Bot-1.3.1-arm64.dmg` (Apple Silicon M1/M2/M3) or the universal `.dmg` / `.pkg`.
 2. Drag the application icon into your `Applications` folder.
 3. Open the app from Applications or Spotlight.
 
