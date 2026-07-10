@@ -6,6 +6,7 @@ const path = require('path');
 process.env.NODE_ENV = 'test';
 process.env.APP_USER_DATA_PATH = path.join(__dirname, 'test_data');
 process.env.PORT = '0'; // random port or none
+delete process.env.GEMINI_API_KEY; // Image-gen availability tests assume no key
 
 // Mock complex sub-systems to focus on API and DB layers
 jest.mock('../src/whatsapp/sessionManager', () => ({
@@ -39,6 +40,10 @@ jest.mock('../src/messaging/scheduler', () => ({
     remove: jest.fn()
 }));
 
+jest.mock('../src/whatsapp/messageHandler', () => ({
+    init: jest.fn()
+}));
+
 const app = require('../server');
 const db = require('../src/db/database');
 
@@ -54,7 +59,7 @@ describe('API Routes', () => {
                 DELETE FROM groups;
                 DELETE FROM contacts;
                 DELETE FROM campaigns;
-                DELETE FROM templates;
+                DELETE FROM message_templates;
                 DELETE FROM quick_replies;
                 DELETE FROM settings;
             `);
@@ -184,6 +189,54 @@ describe('API Routes', () => {
             expect(res.body).toHaveProperty('stats');
             expect(res.body).toHaveProperty('messagesOverTime');
             expect(res.body).toHaveProperty('topCampaigns');
+        });
+    });
+
+    describe('AI Image Generation & Company Logo', () => {
+        // 1x1 transparent PNG
+        const tinyPng = Buffer.from(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+            'base64'
+        );
+
+        it('POST /api/media/generate-image should 400 without a Gemini key', async () => {
+            const res = await request(app).post('/api/media/generate-image').send({ message: 'Summer sale!' });
+            expect(res.statusCode).toEqual(400);
+            expect(res.body.error).toMatch(/Gemini API key/i);
+        });
+
+        it('GET /api/settings/logo should 404 before upload', async () => {
+            const res = await request(app).get('/api/settings/logo');
+            expect(res.statusCode).toEqual(404);
+        });
+
+        it('POST /api/settings/logo should accept a PNG and expose it', async () => {
+            const res = await request(app)
+                .post('/api/settings/logo')
+                .attach('logo', tinyPng, 'logo.png');
+            expect(res.statusCode).toEqual(200);
+            expect(res.body.success).toBe(true);
+
+            const fetched = await request(app).get('/api/settings/logo');
+            expect(fetched.statusCode).toEqual(200);
+
+            const settings = await request(app).get('/api/settings');
+            expect(settings.body.has_company_logo).toBe(true);
+        });
+
+        it('POST /api/settings/logo should reject non-image extensions', async () => {
+            const res = await request(app)
+                .post('/api/settings/logo')
+                .attach('logo', Buffer.from('not an image'), 'logo.exe');
+            expect(res.statusCode).toEqual(400);
+        });
+
+        it('DELETE /api/settings/logo should remove the logo', async () => {
+            const res = await request(app).delete('/api/settings/logo');
+            expect(res.statusCode).toEqual(200);
+
+            const fetched = await request(app).get('/api/settings/logo');
+            expect(fetched.statusCode).toEqual(404);
         });
     });
 });

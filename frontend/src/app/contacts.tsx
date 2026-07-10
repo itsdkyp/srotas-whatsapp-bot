@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import {
     getContacts, getGroups, addGroup, deleteGroup, renameGroup,
-    addContact, deleteContact, importContacts, uploadContactsCsv,
+    addContact, deleteContact, bulkDeleteContacts, importContacts, uploadContactsCsv,
     syncWhatsAppContacts, getWhatsAppGroups, grabGroupContacts, moveToGroup, getSessions
 } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { Search, Plus, Upload, Download, RefreshCw, Trash2, FolderPlus, FolderOpen, Smartphone } from 'lucide-react';
+import { Search, Plus, Upload, Download, RefreshCw, Trash2, FolderPlus, FolderOpen, Smartphone, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 
 export function Contacts() {
@@ -25,6 +25,8 @@ export function Contacts() {
 
     const [page, setPage] = useState(1);
     const [total, setTotal] = useState(0);
+    const [hasMore, setHasMore] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
     const limit = 50;
 
     const [search, setSearch] = useState('');
@@ -53,10 +55,14 @@ export function Contacts() {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
-        fetchData(page, search);
-    }, [selectedGroup, page]);
+        const timer = setTimeout(() => {
+            setPage(1);
+            fetchData(1, search);
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [selectedGroup, search]);
 
-    const fetchData = async (currentPage = page, currentSearch = search) => {
+    const fetchData = async (currentPage = 1, currentSearch = search) => {
         setLoading(true);
         try {
             const [g, cData, s] = await Promise.all([
@@ -66,12 +72,13 @@ export function Contacts() {
             ]);
             setGroups(g);
 
-            // Handle both paginated response and fallback unpaginated response
             const contactsList = cData.contacts || (Array.isArray(cData) ? cData : []);
             const totalCount = cData.total !== undefined ? cData.total : contactsList.length;
 
             setContacts(contactsList);
             setTotal(totalCount);
+            setPage(currentPage);
+            setHasMore(contactsList.length < totalCount && contactsList.length > 0);
             setSessions(s);
 
             if (!g.some((gr: any) => gr.name === newContact.group)) {
@@ -81,6 +88,38 @@ export function Contacts() {
             toast.error('Failed to load data');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const loadMore = async () => {
+        if (!hasMore || loadingMore || loading) return;
+        setLoadingMore(true);
+        const nextPage = page + 1;
+        try {
+            const cData = await getContacts(selectedGroup === 'all' ? undefined : selectedGroup, search, nextPage, limit);
+            const contactsList = cData.contacts || (Array.isArray(cData) ? cData : []);
+            const totalCount = cData.total !== undefined ? cData.total : (contacts.length + contactsList.length);
+
+            setContacts(prev => {
+                const existingIds = new Set(prev.map(c => c.id));
+                const uniqueNew = contactsList.filter((c: any) => !existingIds.has(c.id));
+                const updated = [...prev, ...uniqueNew];
+                setHasMore(updated.length < totalCount && contactsList.length > 0);
+                return updated;
+            });
+            setPage(nextPage);
+            setTotal(totalCount);
+        } catch (error) {
+            console.error('Failed to load more contacts:', error);
+        } finally {
+            setLoadingMore(false);
+        }
+    };
+
+    const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+        const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+        if (scrollHeight - scrollTop <= clientHeight + 150 && hasMore && !loading && !loadingMore) {
+            loadMore();
         }
     };
 
@@ -145,14 +184,27 @@ export function Contacts() {
         const g = groups.find(g => g.name === selectedGroup);
         if (!g) return;
 
-        if (!confirm(`Delete group "${selectedGroup}" and all its contacts?`)) return;
+        if (!confirm(`Are you sure you want to delete the GROUP "${selectedGroup}" and all contacts inside it?`)) return;
         try {
             await deleteGroup(g.id);
-            toast.success('Group deleted');
+            toast.success(`Group "${selectedGroup}" deleted`);
             setSelectedGroup('all');
             fetchData();
         } catch (error) {
             toast.error('Failed to delete group');
+        }
+    };
+
+    const handleBulkDeleteContacts = async () => {
+        if (selectedContacts.length === 0) return;
+        if (!confirm(`Are you sure you want to permanently delete ${selectedContacts.length} selected contact(s)?`)) return;
+        try {
+            await bulkDeleteContacts(selectedContacts);
+            toast.success(`Deleted ${selectedContacts.length} contact(s)`);
+            setSelectedContacts([]);
+            fetchData();
+        } catch (error: any) {
+            toast.error(error.response?.data?.error || 'Failed to delete selected contacts');
         }
     };
 
@@ -167,9 +219,23 @@ export function Contacts() {
         }
     };
 
-    const toggleSelectAll = (checked: boolean) => {
+    const toggleSelectAll = async (checked: boolean) => {
         if (checked) {
-            setSelectedContacts(contacts.map(c => c.id));
+            if (hasMore || total > contacts.length) {
+                try {
+                    const cData = await getContacts(selectedGroup === 'all' ? undefined : selectedGroup, search, 1, 1000000);
+                    const allList = cData.contacts || (Array.isArray(cData) ? cData : []);
+                    setContacts(allList);
+                    setSelectedContacts(allList.map((c: any) => c.id));
+                    setHasMore(false);
+                    toast.success(`Loaded and selected all ${allList.length} contacts`);
+                } catch (error) {
+                    toast.error('Failed to load all contacts for selection');
+                    setSelectedContacts(contacts.map(c => c.id));
+                }
+            } else {
+                setSelectedContacts(contacts.map(c => c.id));
+            }
         } else {
             setSelectedContacts([]);
         }
@@ -218,19 +284,57 @@ export function Contacts() {
         try {
             if (syncTab === 'personal') {
                 const waContacts = await syncWhatsAppContacts(syncSession);
-                const formatted = waContacts.map((c: any) => ({
-                    phone: c.phone || (c.id && c.id._serialized ? c.id._serialized.split('@')[0] : ''),
-                    name: c.name || c.pushname || 'Unknown',
-                    company: c.company || '',
-                    custom_fields: {}
-                }));
+                if (!waContacts || !Array.isArray(waContacts) || waContacts.length === 0) {
+                    return toast.error('No WhatsApp contacts found to sync. Try messaging someone first.');
+                }
+                const formatted = waContacts
+                    .map((c: any) => {
+                        const rawPhone = String(c.phone || (c.id && c.id._serialized ? c.id._serialized.split('@')[0] : '') || '');
+                        const phone = rawPhone.replace(/[^0-9]/g, '');
+                        if (!phone || phone.length < 5) return null;
+                        const rawName = c.name || '';
+                        const isNumberName = /^[0-9+]+$/.test(rawName) || rawName === phone;
+                        const validName = !isNumberName && rawName ? rawName : (c.notify || c.pushname || c.verifiedName || c.pushName || '');
+                        return {
+                            phone,
+                            name: validName,
+                            company: c.company || '',
+                            custom_fields: {}
+                        };
+                    })
+                    .filter(Boolean);
+                if (formatted.length === 0) {
+                    return toast.error('Could not extract valid phone numbers from WhatsApp contacts.');
+                }
                 await importContacts(formatted, syncTargetGroup);
-                toast.success(`Synced ${formatted.length} contacts`);
+                toast.success(`Synced ${formatted.length} WhatsApp contacts successfully`);
             } else {
                 if (!selectedWaGroup) return toast.error('Select a WhatsApp group to grab from');
                 const groupContacts = await grabGroupContacts(syncSession, selectedWaGroup);
-                await importContacts(groupContacts, syncTargetGroup);
-                toast.success(`Grabbed ${groupContacts.length} members`);
+                if (!groupContacts || !Array.isArray(groupContacts) || groupContacts.length === 0) {
+                    return toast.error('No members found in this WhatsApp group.');
+                }
+                const formattedGroup = groupContacts
+                    .map((c: any) => {
+                        const rawPhone = String(c.phone || c.id || '');
+                        const phone = rawPhone.replace(/[^0-9]/g, '');
+                        if (!phone || phone.length < 5) return null;
+                        const rawName = c.name || '';
+                        const isNumberName = /^[0-9+]+$/.test(rawName) || rawName === phone;
+                        const validName = !isNumberName && rawName ? rawName : (c.notify || c.pushname || c.verifiedName || c.pushName || '');
+                        return {
+                            phone,
+                            name: validName,
+                            company: c.company || '',
+                            custom_fields: {}
+                        };
+                    })
+                    .filter(Boolean);
+                if (formattedGroup.length === 0) {
+                    return toast.error('Could not extract valid phone numbers from group members.');
+                }
+                await importContacts(formattedGroup, syncTargetGroup);
+                toast.success(`Grabbed ${formattedGroup.length} group members successfully`);
             }
             setIsSyncOpen(false);
             fetchData();
@@ -313,30 +417,47 @@ export function Contacts() {
                                 <Button size="icon" variant="ghost" onClick={() => { setNewGroupName(selectedGroup); setIsRenameGroupOpen(true); }} title="Rename Group">
                                     <span className="text-xs font-semibold px-2">✏️</span>
                                 </Button>
-                                <Button size="icon" variant="ghost" onClick={handleDeleteGroup} title="Delete Group">
-                                    <Trash2 className="w-4 h-4 text-destructive" />
+                                <Button size="sm" variant="ghost" onClick={handleDeleteGroup} className="gap-1 text-xs text-destructive hover:bg-destructive/10" title="Delete entire Group and all its contacts">
+                                    <Trash2 className="w-3.5 h-3.5" /> Delete Group
                                 </Button>
                             </>
                         )}
                     </div>
 
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        <span>{contacts.length} contacts</span>
-                        {selectedContacts.length > 0 && (
-                            <>
-                                <span className="text-primary font-medium">{selectedContacts.length} selected</span>
-                                <Button size="sm" variant="outline" onClick={() => setIsAddGroupOpen(true)} className="gap-2" title="Move to new group">
-                                    <FolderOpen className="w-4 h-4" /> Group Selected
+                    <div className="flex items-center gap-3 text-sm">
+                        {selectedContacts.length > 0 ? (
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-semibold bg-primary/15 text-primary border border-primary/30 px-3 py-1 rounded-full flex items-center gap-1.5 shadow-sm">
+                                    {selectedContacts.length === contacts.length && contacts.length > 0
+                                        ? `All ${contacts.length} selected`
+                                        : `${selectedContacts.length} of ${contacts.length} selected`}
+                                    <button
+                                        onClick={() => setSelectedContacts([])}
+                                        className="ml-1 text-primary/70 hover:text-foreground font-bold leading-none transition-colors"
+                                        title="Clear selection"
+                                    >×</button>
+                                </span>
+                                <Button size="sm" variant="outline" onClick={() => setIsAddGroupOpen(true)} className="gap-1.5 text-xs h-8 border-primary/40 hover:bg-primary/10">
+                                    <FolderOpen className="w-3.5 h-3.5 text-primary" /> Group Selected
                                 </Button>
-                            </>
+                                <Button size="sm" variant="destructive" onClick={handleBulkDeleteContacts} className="gap-1.5 text-xs h-8 shadow-sm">
+                                    <Trash2 className="w-3.5 h-3.5" /> Delete Selected ({selectedContacts.length})
+                                </Button>
+                            </div>
+                        ) : (
+                            <span className="text-xs font-medium text-muted-foreground bg-secondary/50 px-2.5 py-1 rounded-md border border-border/50">
+                                {total > contacts.length
+                                    ? `Showing ${contacts.length} of ${total} contacts`
+                                    : `${contacts.length} ${contacts.length === 1 ? 'contact' : 'contacts'}`}
+                            </span>
                         )}
-                        <Button size="sm" variant="outline" onClick={exportCsv} className="gap-2">
-                            <Download className="w-4 h-4" /> Export
+                        <Button size="sm" variant="outline" onClick={exportCsv} className="gap-1.5 text-xs h-8">
+                            <Download className="w-3.5 h-3.5" /> Export
                         </Button>
                     </div>
                 </CardHeader>
 
-                <CardContent className="p-0 flex-1 overflow-auto">
+                <CardContent className="p-0 flex-1 overflow-auto" onScroll={handleScroll}>
                     <Table>
                         <TableHeader className="bg-secondary/30 sticky top-0 z-10 backdrop-blur-sm">
                             <TableRow>
@@ -367,48 +488,65 @@ export function Contacts() {
                                     </TableCell>
                                 </TableRow>
                             ) : (
-                                contacts.map(c => (
-                                    <TableRow key={c.id}>
-                                        <TableCell className="text-center">
-                                            <Checkbox
-                                                checked={selectedContacts.includes(c.id)}
-                                                onCheckedChange={(checked) => toggleSelect(c.id, !!checked)}
-                                            />
-                                        </TableCell>
-                                        <TableCell className="font-medium">{c.name || '—'}</TableCell>
-                                        <TableCell>+{c.phone}</TableCell>
-                                        <TableCell>{c.company || '—'}</TableCell>
-                                        <TableCell>
-                                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-secondary text-secondary-foreground">
-                                                {c.group_name}
-                                            </span>
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                            <Button variant="ghost" size="icon" onClick={() => handleDeleteContact(c.id)} className="text-destructive hover:bg-destructive/10">
-                                                <Trash2 className="w-4 h-4" />
-                                            </Button>
-                                        </TableCell>
-                                    </TableRow>
-                                ))
+                                contacts.map(c => {
+                                    const isSelected = selectedContacts.includes(c.id);
+                                    return (
+                                        <TableRow
+                                            key={c.id}
+                                            onClick={(e) => {
+                                                if (selectedContacts.length > 0 || e.ctrlKey || e.metaKey || e.shiftKey) {
+                                                    if (e.target instanceof HTMLElement && (e.target.closest('button') || e.target.closest('[role="checkbox"]'))) return;
+                                                    toggleSelect(c.id, !isSelected);
+                                                }
+                                            }}
+                                            className={`transition-colors ${selectedContacts.length > 0 ? 'cursor-pointer' : ''} ${isSelected ? 'bg-primary/10 hover:bg-primary/15 font-medium' : 'hover:bg-secondary/50'}`}
+                                        >
+                                            <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                                                <Checkbox
+                                                    checked={isSelected}
+                                                    onCheckedChange={(checked) => toggleSelect(c.id, !!checked)}
+                                                />
+                                            </TableCell>
+                                            <TableCell className="font-medium">
+                                                {(!c.name || /^[0-9+]+$/.test(c.name) || c.name === c.phone) ? (c.notify || c.pushname || '—') : c.name}
+                                            </TableCell>
+                                            <TableCell>+{c.phone}</TableCell>
+                                            <TableCell>{c.company || '—'}</TableCell>
+                                            <TableCell>
+                                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-secondary text-secondary-foreground">
+                                                    {c.group_name}
+                                                </span>
+                                            </TableCell>
+                                            <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                                                <Button variant="ghost" size="icon" onClick={() => handleDeleteContact(c.id)} className="text-destructive hover:bg-destructive/10">
+                                                    <Trash2 className="w-4 h-4" />
+                                                </Button>
+                                            </TableCell>
+                                        </TableRow>
+                                    );
+                                })
                             )}
                         </TableBody>
                     </Table>
+                    {loadingMore && (
+                        <div className="p-4 flex items-center justify-center gap-2 text-sm text-muted-foreground border-t border-border bg-secondary/5">
+                            <RefreshCw className="w-4 h-4 animate-spin text-primary" />
+                            Loading more contacts...
+                        </div>
+                    )}
                 </CardContent>
 
-                {/* Pagination Controls */}
+                {/* Status & Load More Footer */}
                 {total > 0 && (
-                    <div className="flex items-center justify-between p-4 border-t border-border bg-secondary/10">
-                        <div className="text-sm text-muted-foreground">
-                            Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total} contacts
+                    <div className="flex items-center justify-between p-3 px-4 border-t border-border bg-secondary/10 text-sm text-muted-foreground">
+                        <div>
+                            Showing <span className="font-medium text-foreground">{contacts.length}</span> of <span className="font-medium text-foreground">{total}</span> contacts
                         </div>
-                        <div className="flex items-center gap-2">
-                            <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
-                                Previous
+                        {contacts.length < total && !loadingMore && (
+                            <Button variant="ghost" size="sm" onClick={loadMore} className="text-xs h-7 gap-1 hover:bg-secondary/20">
+                                Load More <ChevronDown className="w-3.5 h-3.5" />
                             </Button>
-                            <Button variant="outline" size="sm" onClick={() => setPage(p => p + 1)} disabled={page * limit >= total}>
-                                Next
-                            </Button>
-                        </div>
+                        )}
                     </div>
                 )}
             </Card>

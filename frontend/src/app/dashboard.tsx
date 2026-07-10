@@ -9,7 +9,7 @@ import {
     Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis,
     Tooltip as RechartsTooltip, ResponsiveContainer, Legend
 } from 'recharts';
-import { Send, Users, Paperclip, CheckCircle, Brain, Zap, Smartphone, Rocket } from 'lucide-react';
+import { Send, Users, Paperclip, CheckCircle, Brain, Zap, Smartphone, Rocket, ArrowRight } from 'lucide-react';
 
 // Shared easing (cubic bezier — always valid Framer Motion Easing type)
 const ease = [0.25, 0.46, 0.45, 0.94] as const;
@@ -51,8 +51,8 @@ function CustomTooltip({ active, payload, label }: any) {
 }
 
 // ── Stat Card ─────────────────────────────────────────────────────────────────
-function StatCard({ title, value, icon: Icon, color, delay = 0 }: {
-    title: string; value: number | string; icon: any; color: string; delay?: number;
+function StatCard({ title, value, icon: Icon, color, delay = 0, onClick }: {
+    title: string; value: number | string; icon: any; color: string; delay?: number; onClick?: () => void;
 }) {
     const numValue = typeof value === 'string' ? parseFloat(value) : value;
     const animated = useCountUp(numValue, 1000);
@@ -64,7 +64,10 @@ function StatCard({ title, value, icon: Icon, color, delay = 0 }: {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay, duration: 0.4, ease }}
         >
-            <Card className="card-glow group overflow-hidden relative">
+            <Card
+                onClick={onClick}
+                className={`card-glow group overflow-hidden relative ${onClick ? 'cursor-pointer hover:border-primary/50 transition-all active:scale-[0.98]' : ''}`}
+            >
                 <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-xl"
                     style={{ background: `linear-gradient(90deg, ${color}, transparent)` }} />
                 <CardHeader className="flex flex-row items-center justify-between pb-2 pt-5">
@@ -84,8 +87,12 @@ function StatCard({ title, value, icon: Icon, color, delay = 0 }: {
     );
 }
 
+interface DashboardProps {
+    onNavigate?: (page: string) => void;
+}
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────
-export function Dashboard() {
+export function Dashboard({ onNavigate }: DashboardProps) {
     const [range, setRange] = useState('30days');
     const [data, setData] = useState<any>(null);
     const [loading, setLoading] = useState(true);
@@ -153,10 +160,10 @@ export function Dashboard() {
 
             {/* Stat Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-                <StatCard title="Messages Sent" value={stats?.totalMessages || 0} icon={Send} color="#3b82f6" delay={0.05} />
-                <StatCard title="People Reached" value={stats?.peopleReached || 0} icon={Users} color="#06b6d4" delay={0.1} />
-                <StatCard title="Media Sent" value={stats?.mediaSent || 0} icon={Paperclip} color="#8b5cf6" delay={0.15} />
-                <StatCard title="Delivery Rate" value={`${stats?.deliveryRate || 0}%`} icon={CheckCircle} color="#10b981" delay={0.2} />
+                <StatCard title="Messages Sent" value={stats?.totalMessages || 0} icon={Send} color="#3b82f6" delay={0.05} onClick={() => onNavigate?.('messaging')} />
+                <StatCard title="People Reached" value={stats?.peopleReached || 0} icon={Users} color="#06b6d4" delay={0.1} onClick={() => onNavigate?.('contacts')} />
+                <StatCard title="Media Sent" value={stats?.mediaSent || 0} icon={Paperclip} color="#8b5cf6" delay={0.15} onClick={() => onNavigate?.('templates')} />
+                <StatCard title="Delivery Rate" value={`${stats?.deliveryRate || 0}%`} icon={CheckCircle} color="#10b981" delay={0.2} onClick={() => onNavigate?.('messaging')} />
             </div>
 
             {/* Charts */}
@@ -234,11 +241,16 @@ export function Dashboard() {
                 className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5"
             >
                 {/* AI Analytics — CSS SVG ring */}
-                <Card className="card-glow">
-                    <CardHeader className="pb-2">
+                {/* AI Analytics — CSS SVG ring */}
+                <Card
+                    onClick={() => onNavigate?.('settings')}
+                    className="card-glow cursor-pointer hover:border-primary/50 transition-all active:scale-[0.99] group/card"
+                >
+                    <CardHeader className="pb-2 flex flex-row items-center justify-between">
                         <CardTitle className="text-sm flex items-center gap-2">
                             <Brain className="w-4 h-4 text-purple-400" /> AI Analytics
                         </CardTitle>
+                        <ArrowRight className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover/card:opacity-100 group-hover/card:translate-x-0.5 transition-all text-primary" />
                     </CardHeader>
                     <CardContent>
                         {/* SVG circle progress ring */}
@@ -291,11 +303,15 @@ export function Dashboard() {
                 </Card>
 
                 {/* Quick Replies */}
-                <Card className="card-glow">
-                    <CardHeader className="pb-2">
+                <Card
+                    onClick={() => onNavigate?.('quickreplies')}
+                    className="card-glow cursor-pointer hover:border-primary/50 transition-all active:scale-[0.99] group/card"
+                >
+                    <CardHeader className="pb-2 flex flex-row items-center justify-between">
                         <CardTitle className="text-sm flex items-center gap-2">
                             <Zap className="w-4 h-4 text-yellow-400" /> Quick Replies
                         </CardTitle>
+                        <ArrowRight className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover/card:opacity-100 group-hover/card:translate-x-0.5 transition-all text-primary" />
                     </CardHeader>
                     <CardContent className="space-y-0">
                         {[
@@ -313,17 +329,21 @@ export function Dashboard() {
                 </Card>
 
                 {/* Sessions */}
-                <Card className="card-glow">
-                    <CardHeader className="pb-2">
+                <Card
+                    onClick={() => onNavigate?.('sessions')}
+                    className="card-glow cursor-pointer hover:border-primary/50 transition-all active:scale-[0.99] group/card"
+                >
+                    <CardHeader className="pb-2 flex flex-row items-center justify-between">
                         <CardTitle className="text-sm flex items-center gap-2">
                             <Smartphone className="w-4 h-4 text-blue-400" /> Active Sessions
                         </CardTitle>
+                        <ArrowRight className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover/card:opacity-100 group-hover/card:translate-x-0.5 transition-all text-primary" />
                     </CardHeader>
                     <CardContent>
                         {sessions?.length > 0 ? (
                             <div className="space-y-2">
                                 {sessions.map((s: any, idx: number) => (
-                                    <div key={idx} className="flex justify-between items-center p-2.5 rounded-lg bg-secondary/40">
+                                    <div key={idx} className="flex justify-between items-center p-2.5 rounded-lg bg-secondary/40 hover:bg-secondary/80 transition-colors">
                                         <div>
                                             <p className="font-medium text-xs">{s.name}</p>
                                             <p className="text-[10px] text-muted-foreground">{s.phone ? `+${s.phone}` : 'No number'}</p>
@@ -342,11 +362,15 @@ export function Dashboard() {
                 </Card>
 
                 {/* Top Campaigns */}
-                <Card className="card-glow">
-                    <CardHeader className="pb-2">
+                <Card
+                    onClick={() => onNavigate?.('messaging')}
+                    className="card-glow cursor-pointer hover:border-primary/50 transition-all active:scale-[0.99] group/card"
+                >
+                    <CardHeader className="pb-2 flex flex-row items-center justify-between">
                         <CardTitle className="text-sm flex items-center gap-2">
                             <Rocket className="w-4 h-4 text-cyan-400" /> Top Campaigns
                         </CardTitle>
+                        <ArrowRight className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover/card:opacity-100 group-hover/card:translate-x-0.5 transition-all text-primary" />
                     </CardHeader>
                     <CardContent>
                         {topCampaigns?.length > 0 ? (
@@ -355,7 +379,7 @@ export function Dashboard() {
                                     const total = (c.sent || 0) + (c.failed || 0);
                                     const pct = total > 0 ? Math.round((c.sent / total) * 100) : 0;
                                     return (
-                                        <div key={c.id} className="space-y-1.5">
+                                        <div key={c.id} className="space-y-1.5 p-1.5 rounded-lg hover:bg-secondary/60 transition-colors">
                                             <div className="flex justify-between items-center">
                                                 <span className="font-medium text-xs truncate max-w-[120px]">{c.name}</span>
                                                 <span className="text-[10px] text-muted-foreground">{pct}%</span>

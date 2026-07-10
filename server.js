@@ -13,14 +13,31 @@ const bulkSender = require('./src/messaging/bulkSender');
 const scheduler = require('./src/messaging/scheduler');
 const importer = require('./src/contacts/importer');
 const license = require('./src/license');
-const { sessions: sessionsDb, contacts: contactsDb, groups: groupsDb, campaigns: campaignsDb, settings: settingsDb, messages: messagesDb, quickReplies: quickRepliesDb, templates: templatesDb, autoReplyLogs } = require('./src/db/database');
+const { db, sessions: sessionsDb, contacts: contactsDb, groups: groupsDb, campaigns: campaignsDb, settings: settingsDb, messages: messagesDb, quickReplies: quickRepliesDb, templates: templatesDb, autoReplyLogs } = require('./src/db/database');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+    cors: { origin: '*' },
+    pingTimeout: 60000,
+    pingInterval: 25000,
+    maxHttpBufferSize: 1e6,       // 1 MB max payload (default is 100 MB)
+    perMessageDeflate: false,     // Disable compression to save CPU
+    httpCompression: false,
+});
+
+// Fix #23: Validate numeric :id parameter on non-session API endpoints
+app.param('id', (req, res, next, id) => {
+    if (!req.path.startsWith('/api/sessions/') && isNaN(parseInt(id, 10))) {
+        return res.status(400).json({ error: 'Invalid ID format — numeric ID required' });
+    }
+    next();
+});
+
+const pkg = require('./package.json');
 
 // Middleware
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Upload directory
@@ -138,13 +155,11 @@ app.get('/api/admin/history', (req, res) => {
 // ═══════════════════════════════════════
 
 app.get('/api/version', (req, res) => {
-    const pkg = require('./package.json');
     res.json({ version: pkg.version });
 });
 
 app.get('/api/check-update', async (req, res) => {
     try {
-        const pkg = require('./package.json');
         const currentVersion = pkg.version;
 
         const response = await fetch('https://api.github.com/repos/itsdkyp/srotas-whatsapp-bot/releases/latest', {
@@ -194,8 +209,6 @@ app.get('/api/check-update', async (req, res) => {
             downloadMac
         });
     } catch (err) {
-        // Network error — return current version info gracefully
-        const pkg = require('./package.json');
         res.json({ currentVersion: pkg.version, latestVersion: pkg.version, updateAvailable: false, error: 'Could not reach GitHub. Check your internet connection.' });
     }
 });
@@ -213,7 +226,8 @@ app.post('/api/sessions', async (req, res) => {
         const { name } = req.body;
         if (!name) return res.status(400).json({ error: 'Name is required' });
         const sessionId = await sessionManager.addSession(name);
-        res.json({ sessionId, name, status: 'initializing' });
+        const state = sessionManager.getSessionState(sessionId);
+        res.json({ sessionId, name, status: state.status, qr: state.qr });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -240,7 +254,8 @@ app.post('/api/sessions/:id/restart', async (req, res) => {
 app.post('/api/sessions/:id/relink', async (req, res) => {
     try {
         await sessionManager.relinkSession(req.params.id);
-        res.json({ success: true });
+        const state = sessionManager.getSessionState(req.params.id);
+        res.json({ success: true, status: state.status, qr: state.qr });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -340,8 +355,14 @@ app.get('/api/contacts/export-csv', (req, res) => {
     const rows = contactsDb.getAll(group === 'all' ? undefined : group);
 
     let csv = 'phone,name,company,group_name\n';
+    const escapeCsv = (val) => {
+        if (val === null || val === undefined) return '""';
+        let str = String(val);
+        if (/^[=+\-@]/.test(str)) str = "'" + str; // Fix #7: Prevent formula injection
+        return `"${str.replace(/"/g, '""')}"`;
+    };
     for (const c of rows) {
-        csv += `${c.phone || ''},${c.name || ''},${c.company || ''},${c.group_name || ''}\n`;
+        csv += `${escapeCsv(c.phone)},${escapeCsv(c.name)},${escapeCsv(c.company)},${escapeCsv(c.group_name)}\n`;
     }
 
     res.header('Content-Type', 'text/csv');
@@ -437,6 +458,18 @@ app.get('/api/contacts/grab-group/:sessionId/:groupId', async (req, res) => {
     }
 });
 
+app.get('/api/contacts/debug-group/:sessionId/:groupId', async (req, res) => {
+    try {
+        const { sessionId, groupId } = req.params;
+        const sock = sessionManager.getClient(sessionId);
+        if (!sock) return res.status(400).json({ error: 'No sock' });
+        const metadata = await sock.groupMetadata(groupId);
+        res.json({ participants: metadata.participants });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.delete('/api/contacts/:id', (req, res) => {
     contactsDb.delete(parseInt(req.params.id));
     res.json({ success: true });
@@ -445,6 +478,21 @@ app.delete('/api/contacts/:id', (req, res) => {
 app.delete('/api/contacts/group/:name', (req, res) => {
     contactsDb.deleteGroup(req.params.name);
     res.json({ success: true });
+});
+
+app.post('/api/contacts/bulk-delete', (req, res) => {
+    try {
+        const { contactIds } = req.body;
+        if (!contactIds || !Array.isArray(contactIds) || !contactIds.length) {
+            return res.status(400).json({ error: 'No contact IDs provided' });
+        }
+        for (const id of contactIds) {
+            contactsDb.delete(parseInt(id));
+        }
+        res.json({ success: true, deleted: contactIds.length });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 app.post('/api/contacts/move-to-group', (req, res) => {
@@ -695,6 +743,10 @@ const MEDIA_DIR = process.env.APP_USER_DATA_PATH
     : path.join(__dirname, 'uploads', 'media');
 if (!fs.existsSync(MEDIA_DIR)) fs.mkdirSync(MEDIA_DIR, { recursive: true });
 
+// Serve uploaded files directly over HTTP so frontend can preview/display them
+app.use('/api/media/file', express.static(MEDIA_DIR));
+app.use('/api/uploads', express.static(UPLOAD_DIR));
+
 app.post('/api/media/upload', upload.array('media', 10), (req, res) => {
     try {
         if (!req.files || !req.files.length) return res.status(400).json({ error: 'No files uploaded' });
@@ -706,7 +758,8 @@ app.post('/api/media/upload', upload.array('media', 10), (req, res) => {
             fs.copyFileSync(file.path, dest);
             fs.unlinkSync(file.path);
             return {
-                path: dest,
+                path: `/api/media/file/${filename}`,
+                diskPath: dest,
                 filename: file.originalname,
                 mimetype: file.mimetype,
                 size: file.size,
@@ -714,6 +767,86 @@ app.post('/api/media/upload', upload.array('media', 10), (req, res) => {
         });
 
         res.json({ success: true, files });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ═══════════════════════════════════════
+// API ROUTES — AI Image Generation
+// ═══════════════════════════════════════
+
+app.post('/api/media/generate-image', async (req, res) => {
+    try {
+        const imageGenerator = require('./src/ai/imageGenerator');
+        if (!imageGenerator.isImageGenAvailable()) {
+            return res.status(400).json({ error: 'Gemini API key not configured — add it in Settings to generate images' });
+        }
+        const { message } = req.body;
+        if (!message || !message.trim()) {
+            return res.status(400).json({ error: 'Message text is required to generate an image' });
+        }
+        const image = await imageGenerator.generateCampaignImage(message.trim());
+        res.json({ success: true, image: image.data, mimetype: image.mimeType });
+    } catch (err) {
+        console.error('[ImageGen] Error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ═══════════════════════════════════════
+// API ROUTES — Company Logo (used in AI-generated images)
+// ═══════════════════════════════════════
+
+const LOGO_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp'];
+
+app.post('/api/settings/logo', upload.single('logo'), (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'No logo file uploaded' });
+
+        const ext = path.extname(req.file.originalname).toLowerCase();
+        if (!LOGO_EXTENSIONS.includes(ext)) {
+            fs.unlinkSync(req.file.path);
+            return res.status(400).json({ error: 'Logo must be a PNG, JPG, or WEBP image' });
+        }
+        if (req.file.size > 5 * 1024 * 1024) {
+            fs.unlinkSync(req.file.path);
+            return res.status(400).json({ error: 'Logo must be under 5 MB' });
+        }
+
+        // Remove any previous logo file
+        const oldPath = settingsDb.get('company_logo_path');
+        if (oldPath && fs.existsSync(oldPath)) {
+            try { fs.unlinkSync(oldPath); } catch (e) { }
+        }
+
+        const dest = path.join(UPLOAD_DIR, `company-logo${ext}`);
+        fs.copyFileSync(req.file.path, dest);
+        fs.unlinkSync(req.file.path);
+        settingsDb.set('company_logo_path', dest);
+
+        res.json({ success: true, has_logo: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/settings/logo', (req, res) => {
+    const logoPath = settingsDb.get('company_logo_path');
+    if (!logoPath || !fs.existsSync(logoPath)) {
+        return res.status(404).json({ error: 'No company logo uploaded' });
+    }
+    res.sendFile(logoPath);
+});
+
+app.delete('/api/settings/logo', (req, res) => {
+    try {
+        const logoPath = settingsDb.get('company_logo_path');
+        if (logoPath && fs.existsSync(logoPath)) {
+            try { fs.unlinkSync(logoPath); } catch (e) { }
+        }
+        settingsDb.set('company_logo_path', '');
+        res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -844,21 +977,18 @@ app.get('/api/analytics', (req, res) => {
         const totalMessages = totalSent + totalFailed;
         const deliveryRate = totalMessages > 0 ? Math.round((totalSent / totalMessages) * 100) : 0;
 
-        // Count unique contacts reached (from sent messages)
-        const uniqueContacts = new Set();
-        filteredCampaigns.forEach(c => {
-            if (c.group_name && c.sent > 0) {
-                try {
-                    const groupContacts = contactsDb.getAll(c.group_name) || [];
-                    // Assume first N contacts were reached (where N = sent count)
-                    groupContacts.slice(0, c.sent).forEach(contact => {
-                        if (contact.phone) uniqueContacts.add(contact.phone);
-                    });
-                } catch (err) {
-                    console.error('[Analytics] Error counting contacts for group:', c.group_name, err);
-                }
+        // Fix #14: Count unique contacts reached via SQL instead of loading contacts into memory
+        let uniquePeopleReached = 0;
+        if (filteredCampaigns.length > 0) {
+            try {
+                const ids = filteredCampaigns.map(c => c.id);
+                const placeholders = ids.map(() => '?').join(',');
+                const row = db.prepare(`SELECT COUNT(DISTINCT contact_phone) as cnt FROM campaign_messages WHERE campaign_id IN (${placeholders}) AND status = 'sent'`).get(...ids);
+                uniquePeopleReached = row ? row.cnt : 0;
+            } catch (err) {
+                console.error('[Analytics] Error counting unique contacts:', err.message);
             }
-        });
+        }
 
         // Count media files sent
         const mediaSent = filteredCampaigns.reduce((sum, c) => {
@@ -931,7 +1061,7 @@ app.get('/api/analytics', (req, res) => {
         const response = {
             stats: {
                 totalMessages,
-                peopleReached: uniqueContacts.size,
+                peopleReached: uniquePeopleReached,
                 mediaSent,
                 deliveryRate,
                 messagesChange: 0,
@@ -1209,11 +1339,18 @@ CRITICAL INSTRUCTIONS FOR AI:
         max_delay: all.max_delay || process.env.MAX_DELAY_MS || '18000',
         gemini_api_key: all.gemini_api_key || '',
         openai_api_key: all.openai_api_key || '',
+        anti_ban_enabled: all.anti_ban_enabled !== undefined ? all.anti_ban_enabled === '1' || all.anti_ban_enabled === 'true' : true,
+        anti_ban_ignore_bots: all.anti_ban_ignore_bots !== undefined ? all.anti_ban_ignore_bots === '1' || all.anti_ban_ignore_bots === 'true' : true,
+        anti_ban_cooldown_sec: all.anti_ban_cooldown_sec || '30',
+        anti_ban_typing_delay_min: all.anti_ban_typing_delay_min || '3',
+        anti_ban_typing_delay_max: all.anti_ban_typing_delay_max || '6',
+        has_company_logo: !!(all.company_logo_path && fs.existsSync(all.company_logo_path)),
+        image_generation_prompt: all.image_generation_prompt || '',
     });
 });
 
 app.put('/api/settings', (req, res) => {
-    const allowed = ['theme', 'ai_provider', 'ai_model', 'ai_chat_history', 'ai_chat_history_limit', 'ai_use_system_prompt', 'system_prompt', 'min_delay', 'max_delay', 'gemini_api_key', 'openai_api_key'];
+    const allowed = ['theme', 'ai_provider', 'ai_model', 'ai_image_model', 'ai_chat_history', 'ai_chat_history_limit', 'ai_use_system_prompt', 'system_prompt', 'image_generation_prompt', 'min_delay', 'max_delay', 'gemini_api_key', 'openai_api_key', 'anti_ban_enabled', 'anti_ban_ignore_bots', 'anti_ban_cooldown_sec', 'anti_ban_typing_delay_min', 'anti_ban_typing_delay_max'];
     for (const key of allowed) {
         if (req.body[key] !== undefined && req.body[key] !== '••••••••') {
             settingsDb.set(key, req.body[key]);
@@ -1273,12 +1410,37 @@ app.delete('/api/schedules/:id', (req, res) => {
 });
 
 // ═══════════════════════════════════════
+// SPA Fallback for Next.js routing
+// ═══════════════════════════════════════
+app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    if (req.path.startsWith('/api') || req.path.startsWith('/socket.io')) return next();
+    const indexPath = path.join(__dirname, 'public', 'index.html');
+    if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+    } else {
+        next();
+    }
+});
+
+// ═══════════════════════════════════════
 // Socket.IO connection
 // ═══════════════════════════════════════
 
 io.on('connection', (socket) => {
     console.log('Dashboard connected');
     socket.on('disconnect', () => console.log('Dashboard disconnected'));
+});
+
+// ═══════════════════════════════════════
+// Global Exception & JSON Error Middleware
+// ═══════════════════════════════════════
+app.use((err, req, res, next) => {
+    console.error('[API Error]', err.stack || err.message || err);
+    res.status(err.status || 500).json({
+        success: false,
+        error: err.message || 'Internal Server Error'
+    });
 });
 
 // ═══════════════════════════════════════
@@ -1291,7 +1453,30 @@ if (process.env.NODE_ENV !== 'test') {
         const actualPort = server.address().port;
         console.log(`SERVER_PORT=${actualPort}`);
         console.log(`\n🤖 Srotas.bot Dashboard running at http://localhost:${actualPort}\n`);
+
+        // Fix #11: Clean up old messages on startup and every 24h
+        try { messagesDb.cleanup(90); } catch (e) { }
+        setInterval(() => {
+            try { messagesDb.cleanup(90); } catch (e) { }
+        }, 24 * 60 * 60 * 1000);
     });
+
+    // Fix #21: Graceful shutdown
+    const shutdown = async () => {
+        console.log('[Shutdown] Graceful shutdown initiated...');
+        try { scheduler.stop(); } catch (e) { }
+        try {
+            const sessions = sessionManager.listSessions();
+            for (const s of sessions) {
+                const sock = sessionManager.getClient(s.id);
+                if (sock) { try { sock.end(); } catch (_) { } }
+            }
+        } catch (e) { }
+        try { db.close(); } catch (e) { }
+        process.exit(0);
+    };
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
 }
 
 module.exports = app;

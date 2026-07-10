@@ -1,9 +1,63 @@
-const { generateReply } = require('../ai/provider');
-const { MessageMedia } = require('whatsapp-web.js');
+const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const memory = require('../ai/memory');
-const { sessions: sessionDb, quickReplies: quickRepliesDb, campaigns: campaignsDb, autoReplyLogs } = require('../db/database');
+const { generateReply } = require('../ai/provider');
+const { sessions: sessionDb, quickReplies: quickRepliesDb, campaigns: campaignsDb, autoReplyLogs, settings: settingsDb } = require('../db/database');
 const sessionManager = require('./sessionManager');
 const fs = require('fs');
+const path = require('path');
+
+const lastReplyTimestamps = new Map();
+
+// Fix #13: Prune stale cooldown entries every 15 minutes
+setInterval(() => {
+    const cutoff = Date.now() - 10 * 60 * 1000; // 10 minutes
+    for (const [key, ts] of lastReplyTimestamps) {
+        if (ts < cutoff) lastReplyTimestamps.delete(key);
+    }
+}, 15 * 60 * 1000);
+
+// Fix #24: Mask phone numbers in logs (show first 2 + last 4 digits)
+function maskPhone(phone) {
+    if (!phone || phone.length < 6) return '***';
+    return phone.slice(0, 2) + '****' + phone.slice(-4);
+}
+
+// Fix #18: Cached anti-ban settings (refreshed via refreshSettings())
+let _cachedSettings = null;
+function getAntiBanSettings() {
+    if (_cachedSettings) return _cachedSettings;
+    return refreshSettings();
+}
+function refreshSettings() {
+    const antiBanEnabled = settingsDb.get('anti_ban_enabled');
+    _cachedSettings = {
+        enabled: antiBanEnabled === undefined || antiBanEnabled === '1' || antiBanEnabled === 'true' || antiBanEnabled === true,
+        ignoreBots: (() => {
+            const v = settingsDb.get('anti_ban_ignore_bots');
+            return v === undefined || v === '1' || v === 'true' || v === true;
+        })(),
+        cooldownSec: parseInt(settingsDb.get('anti_ban_cooldown_sec')) || 30,
+        typingDelayMin: parseInt(settingsDb.get('anti_ban_typing_delay_min')) || 3,
+        typingDelayMax: parseInt(settingsDb.get('anti_ban_typing_delay_max')) || 6,
+    };
+    return _cachedSettings;
+}
+
+async function simulateTypingDelay(sock, jid) {
+    const settings = getAntiBanSettings();
+    if (!settings.enabled) return;
+
+    const actualMin = Math.min(settings.typingDelayMin, settings.typingDelayMax);
+    const actualMax = Math.max(settings.typingDelayMin, settings.typingDelayMax);
+    const delayMs = Math.floor(Math.random() * (actualMax - actualMin + 1) + actualMin) * 1000;
+
+    try {
+        await sock.presenceSubscribe(jid);
+        await sock.sendPresenceUpdate('composing', jid);
+        await new Promise(r => setTimeout(r, delayMs));
+        await sock.sendPresenceUpdate('paused', jid);
+    } catch (e) { /* ignore presence errors */ }
+}
 
 /**
  * Check if an incoming message matches a campaign button reply.
@@ -47,7 +101,7 @@ function init() {
     // ─── Poll Vote Handler (for clickable campaign buttons) ───
     sessionManager.onVote(async (sessionId, vote) => {
         try {
-            // vote has: voter, selectedOptions, parentMessage, etc.
+            // vote has: voter, selectedOptions (compatible format from sessionManager)
             const voterPhone = vote.voter?.replace('@c.us', '');
             if (!voterPhone) return;
 
@@ -57,7 +111,7 @@ function init() {
             const selectedName = selectedOptions[0]?.name;
             if (!selectedName) return;
 
-            console.log(`[PollVote] ${voterPhone} selected "${selectedName}"`);
+            console.log(`[PollVote] ${maskPhone(voterPhone)} selected "${selectedName}"`);
 
             // Find the campaign button that matches this vote
             const campaigns = campaignsDb.getActiveCampaignsWithButtons();
@@ -79,11 +133,11 @@ function init() {
                 });
 
                 if (matched && matched.reply) {
-                    const client = sessionManager.getClient(sessionId);
-                    if (!client) continue;
-                    const chatId = phoneClean.includes('@c.us') ? phoneClean : `${phoneClean}@c.us`;
-                    await client.sendMessage(chatId, matched.reply);
-                    console.log(`[PollVote] Sent auto-reply to ${voterPhone} for "${selectedName}"`);
+                    const sock = sessionManager.getClient(sessionId);
+                    if (!sock) continue;
+                    const chatId = phoneClean.includes('@') ? phoneClean : `${phoneClean}@s.whatsapp.net`;
+                    await sock.sendMessage(chatId, { text: matched.reply });
+                    console.log(`[PollVote] Sent auto-reply to ${maskPhone(voterPhone)} for "${selectedName}"`);
                     return;
                 }
             }
@@ -92,24 +146,46 @@ function init() {
         }
     });
 
-    // Listen for incoming messages on all sessions
-    sessionManager.onMessage(async (sessionId, msg) => {
+    // ─── Listen for incoming messages on all sessions ───
+    sessionManager.onMessage(async (sessionId, msg, sock) => {
         try {
-            // Skip group messages, status updates, and own messages
-            if (msg.from === 'status@broadcast') return;
-            if (msg.fromMe) return;
-            if (msg.from.includes('@g.us')) return; // group chat
+            const jid = msg.key.remoteJid;
 
-            const contactPhone = msg.from.replace('@c.us', '');
-            let content = msg.body;
+            // Skip status broadcasts and group messages
+            if (!jid) return;
+            if (jid === 'status@broadcast') return;
+            if (jid.endsWith('@g.us')) return;
+
+            // Messages sent manually from the phone arrive here with fromMe —
+            // store them so AI context includes the user's own replies, but
+            // never auto-respond to them
+            if (msg.key.fromMe) {
+                const ownText = sessionManager.extractMessageText(msg);
+                if (ownText) {
+                    const phone = jid.replace('@s.whatsapp.net', '').split(':')[0];
+                    memory.addMessage(phone, 'out', ownText, sessionId);
+                }
+                return;
+            }
+
+            const contactPhone = jid.replace('@s.whatsapp.net', '').split(':')[0];
+            let content = sessionManager.extractMessageText(msg);
+            const msgType = sessionManager.getMessageType(msg);
 
             // Handle stickers and media that might not have text
             let mediaData = null;
-            if (msg.hasMedia) {
+            if (sessionManager.hasMedia(msg)) {
                 try {
-                    // Try to download media for AI to analyze (stickers, images)
-                    if (msg.type === 'sticker' || msg.type === 'image') {
-                        mediaData = await msg.downloadMedia();
+                    // Download media for AI to analyze (stickers, images)
+                    if (msgType === 'sticker' || msgType === 'image') {
+                        const buffer = await downloadMediaMessage(msg, 'buffer', {});
+                        const mimetype = msg.message?.imageMessage?.mimetype
+                            || msg.message?.stickerMessage?.mimetype
+                            || 'image/jpeg';
+                        mediaData = {
+                            data: buffer.toString('base64'),
+                            mimetype,
+                        };
                     }
                 } catch (e) {
                     console.error('[MessageHandler] Failed to download media:', e.message);
@@ -117,11 +193,11 @@ function init() {
             }
 
             if (!content || content.trim() === '') {
-                if (msg.type === 'sticker') content = '[User sent a Sticker]';
-                else if (msg.type === 'image') content = '[User sent an Image]';
-                else if (msg.type === 'video') content = '[User sent a Video]';
-                else if (msg.hasMedia) content = '[User sent Media]';
-                else content = '[Unsupported Message]'; // or emoji-only which usually has text, but just in case
+                if (msgType === 'sticker') content = '[User sent a Sticker]';
+                else if (msgType === 'image') content = '[User sent an Image]';
+                else if (msgType === 'video') content = '[User sent a Video]';
+                else if (sessionManager.hasMedia(msg)) content = '[User sent Media]';
+                else content = '[Unsupported Message]';
             }
 
             // Store incoming message
@@ -137,8 +213,8 @@ function init() {
             // ─── Campaign Button Reply Check (highest priority - always works) ───
             const buttonReply = checkCampaignButtonReply(contactPhone, content);
             if (buttonReply) {
-                console.log(`[CampaignButton] Match for "${content}" from ${contactPhone} — sending reply`);
-                await msg.reply(buttonReply);
+                console.log(`[CampaignButton] Match for "${content}" from ${maskPhone(contactPhone)} — sending reply`);
+                await sock.sendMessage(jid, { text: buttonReply }, { quoted: msg });
                 memory.addMessage(contactPhone, 'out', `[Button Reply] ${buttonReply}`, sessionId);
                 return;
             }
@@ -147,6 +223,30 @@ function init() {
             if (!session.auto_reply) {
                 console.log(`[AutoReply] Master switch is OFF for session ${sessionId} - skipping all responses`);
                 return;
+            }
+
+            // ─── Anti-Ban Checks (Ignore Bots & Cooldowns) ───
+            const abSettings = getAntiBanSettings();
+            if (abSettings.enabled) {
+                if (abSettings.ignoreBots) {
+                    if (jid.endsWith('@lid') || jid.includes('broadcast') || contactPhone.length < 10) {
+                        console.log(`[AntiBan] Ignored automated system/LID account: ${maskPhone(contactPhone)}`);
+                        return;
+                    }
+                    const lowerContent = content.toLowerCase();
+                    const botKeywords = ['to continue, please type', 'welcome to *', 'sbi whatsapp banking', 'domino\'s', 'verification code', 'otp', 'do not reply', 'automated message'];
+                    if (botKeywords.some(k => lowerContent.includes(k))) {
+                        console.log(`[AntiBan] Ignored message with bot keywords from ${maskPhone(contactPhone)}`);
+                        return;
+                    }
+                }
+
+                const lastTime = lastReplyTimestamps.get(`${sessionId}:${contactPhone}`);
+                if (lastTime && Date.now() - lastTime < abSettings.cooldownSec * 1000) {
+                    const remaining = Math.ceil((abSettings.cooldownSec * 1000 - (Date.now() - lastTime)) / 1000);
+                    console.log(`[AntiBan] Cooldown active for ${maskPhone(contactPhone)} (${remaining}s remaining) — skipping response to prevent loops/spam.`);
+                    return;
+                }
             }
 
             // ─── Quick Reply Check (only if enabled for this session) ───
@@ -163,8 +263,7 @@ function init() {
                 for (const qr of enabledReplies) {
                     const trigger = qr.trigger_key.toLowerCase().trim();
 
-                    // If the trigger contains only word characters (letters/numbers/underscores), use word boundary \b
-                    // Otherwise (like for emojis, punctuation, etc), just use exact match or includes
+                    // If the trigger contains only word characters, use word boundary \b
                     const isWordCharOnly = /^\w+$/i.test(trigger);
 
                     let isMatch = false;
@@ -172,8 +271,6 @@ function init() {
                         const regex = new RegExp(`\\b${escapeRegExp(trigger)}\\b`, 'i');
                         isMatch = regex.test(trimmedContent);
                     } else {
-                        // For emojis or special characters, check if the message equals it or contains it
-                        // Since users might send just the emoji or emoji with text
                         isMatch = trimmedContent.includes(trigger);
                     }
 
@@ -186,21 +283,54 @@ function init() {
                 if (matchedReply) {
                     console.log(`[QuickReply] Match found for "${matchedReply.trigger_key}" in "${trimmedContent}"`);
 
+                    await simulateTypingDelay(sock, jid);
+
                     // Send canned response
                     if (matchedReply.media_path && fs.existsSync(matchedReply.media_path)) {
                         try {
-                            const media = MessageMedia.fromFilePath(matchedReply.media_path);
-                            await msg.reply(media, undefined, { caption: matchedReply.response });
+                            const mediaBuffer = fs.readFileSync(matchedReply.media_path);
+                            const ext = path.extname(matchedReply.media_path).toLowerCase();
+                            const mimeMap = {
+                                '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+                                '.gif': 'image/gif', '.mp4': 'video/mp4', '.pdf': 'application/pdf',
+                                '.doc': 'application/msword', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg',
+                            };
+                            const mimetype = mimeMap[ext] || 'application/octet-stream';
+
+                            if (mimetype.startsWith('image/')) {
+                                await sock.sendMessage(jid, {
+                                    image: mediaBuffer,
+                                    caption: matchedReply.response,
+                                }, { quoted: msg });
+                            } else if (mimetype.startsWith('video/')) {
+                                await sock.sendMessage(jid, {
+                                    video: mediaBuffer,
+                                    caption: matchedReply.response,
+                                }, { quoted: msg });
+                            } else if (mimetype.startsWith('audio/')) {
+                                await sock.sendMessage(jid, { audio: mediaBuffer, mimetype }, { quoted: msg });
+                                if (matchedReply.response) {
+                                    await sock.sendMessage(jid, { text: matchedReply.response });
+                                }
+                            } else {
+                                await sock.sendMessage(jid, {
+                                    document: mediaBuffer,
+                                    mimetype,
+                                    fileName: path.basename(matchedReply.media_path),
+                                    caption: matchedReply.response,
+                                }, { quoted: msg });
+                            }
                         } catch (e) {
                             console.error('[QuickReply] Media send failed:', e.message);
-                            await msg.reply(matchedReply.response);
+                            await sock.sendMessage(jid, { text: matchedReply.response }, { quoted: msg });
                         }
                     } else {
-                        await msg.reply(matchedReply.response);
+                        await sock.sendMessage(jid, { text: matchedReply.response }, { quoted: msg });
                     }
 
+                    lastReplyTimestamps.set(`${sessionId}:${contactPhone}`, Date.now());
                     memory.addMessage(contactPhone, 'out', `[Quick Reply: ${matchedReply.label}] ${matchedReply.response}`, sessionId);
-                    console.log(`[QuickReply → ${contactPhone}] Trigger: "${matchedReply.trigger_key}" → Sent: "${matchedReply.label}"`);
+                    console.log(`[QuickReply → ${maskPhone(contactPhone)}] Trigger: "${matchedReply.trigger_key}" → Sent: "${matchedReply.label}"`);
 
                     // Log quick reply analytics
                     try {
@@ -222,66 +352,42 @@ function init() {
             }
 
             // Get conversation history for context (if enabled)
-            const { settings: settingsDb } = require('../db/database');
             const chatHistoryEnabled = settingsDb.get('ai_chat_history');
             const useHistory = chatHistoryEnabled === undefined || chatHistoryEnabled === '1' || chatHistoryEnabled === 'true' || chatHistoryEnabled === true;
 
             // Add typing indicator so user knows AI is thinking
-            let chat;
             try {
-                chat = await msg.getChat();
-                await chat.sendStateTyping();
+                await sock.presenceSubscribe(jid);
+                await sock.sendPresenceUpdate('composing', jid);
             } catch (e) {
                 // ignore
             }
 
             let history = [];
-            if (useHistory && chat) {
-                try {
-                    // Get custom history limit if defined, default to 20
-                    const historyLimit = parseInt(settingsDb.get('ai_chat_history_limit')) || 20;
-
-                    // Fetch real history directly from WhatsApp instead of internal bot memory
-                    // This includes chats from before the bot was started and messages sent from the phone
-                    const wpMessages = await chat.fetchMessages({ limit: historyLimit });
-                    history = wpMessages
-                        .filter(m => m.id._serialized !== msg.id._serialized) // Exclude current msg
-                        .map(m => {
-                            let text = m.body;
-                            if (!text || text.trim() === '') {
-                                if (m.type === 'sticker') text = '[Sticker]';
-                                else if (m.type === 'image') text = '[Image]';
-                                else if (m.type === 'video') text = '[Video]';
-                                else if (m.hasMedia) text = '[Media]';
-                                else text = '[Message]';
-                            }
-                            return {
-                                direction: m.fromMe ? 'out' : 'in',
-                                content: text
-                            };
-                        });
-                } catch (e) {
-                    console.error('[MessageHandler] Failed to fetch real chat history:', e.message);
-                    const historyLimit = parseInt(settingsDb.get('ai_chat_history_limit')) || 20;
-                    history = memory.getHistory(contactPhone, historyLimit); // Fallback
-                }
-            } else if (useHistory) {
+            if (useHistory) {
+                // Use DB-based history (populated by messaging-history.set sync + real-time messages)
                 const historyLimit = parseInt(settingsDb.get('ai_chat_history_limit')) || 20;
-                history = memory.getHistory(contactPhone, historyLimit); // Fallback
+                history = memory.getHistory(contactPhone, historyLimit);
             }
 
             // Generate AI reply
             const reply = await generateReply(history, content, mediaData);
 
             if (reply && reply.trim()) {
+                await simulateTypingDelay(sock, jid);
+
                 // Send reply
-                await msg.reply(reply.trim());
-                if (chat) {
-                    try { await chat.clearState(); } catch (e) { }
-                }
+                await sock.sendMessage(jid, { text: reply.trim() }, { quoted: msg });
+
+                // Clear typing indicator
+                try {
+                    await sock.sendPresenceUpdate('paused', jid);
+                } catch (e) { }
+
+                lastReplyTimestamps.set(`${sessionId}:${contactPhone}`, Date.now());
                 // Store outgoing message
                 memory.addMessage(contactPhone, 'out', reply.trim(), sessionId);
-                console.log(`[AutoReply → ${contactPhone}] ${reply.trim().substring(0, 80)}...`);
+                console.log(`[AutoReply → ${maskPhone(contactPhone)}] ${reply.trim().substring(0, 80)}...`);
 
                 // Log AI reply analytics
                 try {
@@ -298,4 +404,4 @@ function escapeRegExp(string) {
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-module.exports = { init };
+module.exports = { init, refreshSettings };

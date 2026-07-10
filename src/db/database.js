@@ -9,8 +9,12 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const db = new Database(path.join(DATA_DIR, 'bot.db'));
 
-// Enable WAL mode for better concurrency
+// Enable WAL mode for better concurrency + performance pragmas
 db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL');      // WAL + NORMAL is safe and 2-3x faster than FULL
+db.pragma('cache_size = -8000');         // 8 MB page cache (default is only 2 MB)
+db.pragma('temp_store = MEMORY');        // Temp tables in memory
+db.pragma('mmap_size = 67108864');       // 64 MB memory-mapped I/O for reads
 
 // Create tables
 db.exec(`
@@ -130,6 +134,20 @@ db.exec(`
     next_run TEXT,
     created_at TEXT DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS wa_contacts (
+    session_id TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    name TEXT DEFAULT '',
+    updated_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (session_id, phone)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_campaign_messages_campaign ON campaign_messages(campaign_id);
+  CREATE INDEX IF NOT EXISTS idx_campaign_messages_status ON campaign_messages(campaign_id, status);
+  CREATE INDEX IF NOT EXISTS idx_messages_phone ON messages(contact_phone);
+  CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
+  CREATE INDEX IF NOT EXISTS idx_auto_reply_logs_type ON auto_reply_logs(type, timestamp);
 `);
 
 // Migrations for existing databases
@@ -238,19 +256,19 @@ const groups = {
 
 const contacts = {
     getPaginated: (groupName, limit, offset, search) => {
-        let query = 'SELECT * FROM contacts';
-        let countQuery = 'SELECT COUNT(*) as count FROM contacts';
+        let query = 'SELECT c.*, COALESCE(NULLIF(c.name, \'\'), (SELECT w.name FROM wa_contacts w WHERE w.phone = c.phone AND w.name != \'\' LIMIT 1), \'\') AS name, (SELECT w.name FROM wa_contacts w WHERE w.phone = c.phone AND w.name != \'\' LIMIT 1) AS pushname FROM contacts c';
+        let countQuery = 'SELECT COUNT(*) as count FROM contacts c';
         const params = [];
 
         let conditions = [];
         if (groupName) {
-            conditions.push('group_name = ?');
+            conditions.push('c.group_name = ?');
             params.push(groupName);
         }
         if (search) {
-            conditions.push('(name LIKE ? OR phone LIKE ? OR company LIKE ?)');
+            conditions.push('(c.name LIKE ? OR c.phone LIKE ? OR c.company LIKE ? OR (SELECT w.name FROM wa_contacts w WHERE w.phone = c.phone AND w.name != \'\' LIMIT 1) LIKE ?)');
             const s = `%${search}%`;
-            params.push(s, s, s);
+            params.push(s, s, s, s);
         }
 
         if (conditions.length > 0) {
@@ -259,15 +277,16 @@ const contacts = {
             countQuery += where;
         }
 
-        query += ' ORDER BY group_name, name LIMIT ? OFFSET ?';
+        query += ' ORDER BY c.group_name, name LIMIT ? OFFSET ?';
 
         const count = db.prepare(countQuery).get(...params).count;
         const rows = db.prepare(query).all(...params, limit, offset);
         return { contacts: rows, total: count };
     },
     getAll: (groupName) => {
-        if (groupName) return db.prepare('SELECT * FROM contacts WHERE group_name = ? ORDER BY name').all(groupName);
-        return db.prepare('SELECT * FROM contacts ORDER BY group_name, name').all();
+        const baseSelect = 'SELECT c.*, COALESCE(NULLIF(c.name, \'\'), (SELECT w.name FROM wa_contacts w WHERE w.phone = c.phone AND w.name != \'\' LIMIT 1), \'\') AS name, (SELECT w.name FROM wa_contacts w WHERE w.phone = c.phone AND w.name != \'\' LIMIT 1) AS pushname FROM contacts c';
+        if (groupName) return db.prepare(baseSelect + ' WHERE c.group_name = ? ORDER BY name').all(groupName);
+        return db.prepare(baseSelect + ' ORDER BY c.group_name, name').all();
     },
     getById: (id) => db.prepare('SELECT * FROM contacts WHERE id = ?').get(id),
     getByPhone: (phone) => db.prepare('SELECT * FROM contacts WHERE phone = ?').get(phone),
@@ -304,12 +323,15 @@ const campaigns = {
     getAll: () => db.prepare('SELECT * FROM campaigns ORDER BY started_at DESC').all(),
     getById: (id) => db.prepare('SELECT * FROM campaigns WHERE id = ?').get(id),
     update: (id, fields) => {
+        const ALLOWED_FIELDS = ['status', 'sent', 'failed', 'total', 'completed_at', 'name', 'template', 'group_name', 'media_path', 'media_paths', 'buttons_config', 'min_delay', 'max_delay'];
         const sets = [];
         const vals = [];
         for (const [k, v] of Object.entries(fields)) {
+            if (!ALLOWED_FIELDS.includes(k)) continue; // Skip unknown columns
             sets.push(`${k} = ?`);
             vals.push(v);
         }
+        if (sets.length === 0) return; // Nothing to update
         vals.push(id);
         db.prepare(`UPDATE campaigns SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
     },
@@ -364,6 +386,33 @@ const messages = {
     },
     getRecent: (limit = 100) => {
         return db.prepare('SELECT * FROM messages ORDER BY timestamp DESC LIMIT ?').all(limit).reverse();
+    },
+    cleanup: (daysToKeep = 30) => {
+        return db.prepare("DELETE FROM messages WHERE timestamp < datetime('now', '-' || ? || ' days')").run(daysToKeep);
+    },
+};
+
+// WhatsApp-synced contacts (persisted so they survive server restarts,
+// since Baileys only replays contact mutations once per app-state version)
+const waContacts = {
+    upsertMany: (sessionId, contactList) => {
+        const stmt = db.prepare(`
+            INSERT INTO wa_contacts (session_id, phone, name, updated_at)
+            VALUES (?, ?, ?, datetime('now'))
+            ON CONFLICT(session_id, phone) DO UPDATE SET
+                name = CASE WHEN excluded.name != '' THEN excluded.name ELSE wa_contacts.name END,
+                updated_at = excluded.updated_at
+        `);
+        const tx = db.transaction((list) => {
+            for (const c of list) stmt.run(sessionId, c.phone, c.name || '');
+        });
+        tx(contactList);
+    },
+    getBySession: (sessionId) => {
+        return db.prepare('SELECT phone, name FROM wa_contacts WHERE session_id = ?').all(sessionId);
+    },
+    deleteBySession: (sessionId) => {
+        return db.prepare('DELETE FROM wa_contacts WHERE session_id = ?').run(sessionId);
     },
 };
 
@@ -426,32 +475,51 @@ const autoReplyLogs = {
         ).run(sessionId || null, contactPhone, type, triggerKey || null, responseTimeMs || null, historyMessagesCount || 0);
     },
     getStats: (sinceIso) => {
-        const where = sinceIso ? `WHERE timestamp >= '${sinceIso}'` : '';
+        const aiRows = sinceIso
+            ? db.prepare(
+                `SELECT COUNT(*) as total, COUNT(DISTINCT contact_phone) as unique_users,
+                 AVG(response_time_ms) as avg_ms, AVG(history_messages_count) as avg_history
+                 FROM auto_reply_logs WHERE type = 'ai' AND timestamp >= ?`
+            ).get(sinceIso)
+            : db.prepare(
+                `SELECT COUNT(*) as total, COUNT(DISTINCT contact_phone) as unique_users,
+                 AVG(response_time_ms) as avg_ms, AVG(history_messages_count) as avg_history
+                 FROM auto_reply_logs WHERE type = 'ai'`
+            ).get();
 
-        const aiRows = db.prepare(
-            `SELECT COUNT(*) as total, COUNT(DISTINCT contact_phone) as unique_users,
-             AVG(response_time_ms) as avg_ms, AVG(history_messages_count) as avg_history
-             FROM auto_reply_logs WHERE type = 'ai' ${sinceIso ? `AND timestamp >= '${sinceIso}'` : ''}`
-        ).get();
+        const qrRows = sinceIso
+            ? db.prepare(
+                `SELECT COUNT(*) as total, COUNT(DISTINCT contact_phone) as unique_users,
+                 AVG(response_time_ms) as avg_ms
+                 FROM auto_reply_logs WHERE type = 'quick_reply' AND timestamp >= ?`
+            ).get(sinceIso)
+            : db.prepare(
+                `SELECT COUNT(*) as total, COUNT(DISTINCT contact_phone) as unique_users,
+                 AVG(response_time_ms) as avg_ms
+                 FROM auto_reply_logs WHERE type = 'quick_reply'`
+            ).get();
 
-        const qrRows = db.prepare(
-            `SELECT COUNT(*) as total, COUNT(DISTINCT contact_phone) as unique_users,
-             AVG(response_time_ms) as avg_ms
-             FROM auto_reply_logs WHERE type = 'quick_reply' ${sinceIso ? `AND timestamp >= '${sinceIso}'` : ''}`
-        ).get();
+        const mostUsedRow = sinceIso
+            ? db.prepare(
+                `SELECT trigger_key, COUNT(*) as cnt FROM auto_reply_logs
+                 WHERE type = 'quick_reply' AND trigger_key IS NOT NULL AND timestamp >= ?
+                 GROUP BY trigger_key ORDER BY cnt DESC LIMIT 1`
+            ).get(sinceIso)
+            : db.prepare(
+                `SELECT trigger_key, COUNT(*) as cnt FROM auto_reply_logs
+                 WHERE type = 'quick_reply' AND trigger_key IS NOT NULL
+                 GROUP BY trigger_key ORDER BY cnt DESC LIMIT 1`
+            ).get();
 
-        const mostUsedRow = db.prepare(
-            `SELECT trigger_key, COUNT(*) as cnt FROM auto_reply_logs
-             WHERE type = 'quick_reply' AND trigger_key IS NOT NULL
-             ${sinceIso ? `AND timestamp >= '${sinceIso}'` : ''}
-             GROUP BY trigger_key ORDER BY cnt DESC LIMIT 1`
-        ).get();
-
-        // AI conversation count — distinct contacts that had at least one AI reply
-        const aiConversations = db.prepare(
-            `SELECT COUNT(DISTINCT contact_phone) as cnt FROM auto_reply_logs
-             WHERE type = 'ai' ${sinceIso ? `AND timestamp >= '${sinceIso}'` : ''}`
-        ).get();
+        const aiConversations = sinceIso
+            ? db.prepare(
+                `SELECT COUNT(DISTINCT contact_phone) as cnt FROM auto_reply_logs
+                 WHERE type = 'ai' AND timestamp >= ?`
+            ).get(sinceIso)
+            : db.prepare(
+                `SELECT COUNT(DISTINCT contact_phone) as cnt FROM auto_reply_logs
+                 WHERE type = 'ai'`
+            ).get();
 
         return {
             ai: {
@@ -471,4 +539,4 @@ const autoReplyLogs = {
     }
 };
 
-module.exports = { db, sessions, groups, contacts, campaigns, messages, settings, quickReplies, templates, autoReplyLogs };
+module.exports = { db, sessions, groups, contacts, campaigns, messages, settings, quickReplies, templates, autoReplyLogs, waContacts };

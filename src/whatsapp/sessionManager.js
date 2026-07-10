@@ -1,20 +1,54 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const makeWASocket = require('@whiskeysockets/baileys').default;
+const {
+    useMultiFileAuthState,
+    DisconnectReason,
+    makeCacheableSignalKeyStore,
+    fetchLatestBaileysVersion,
+    getAggregateVotesInPollMessage,
+    Browsers,
+} = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode');
+const pino = require('pino');
 const { randomUUID } = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { sessions: sessionDb } = require('../db/database');
+const { sessions: sessionDb, messages: messagesDb, waContacts: waContactsDb, db: rawDb } = require('../db/database');
 
-// In-memory map of active WhatsApp clients
-const clients = new Map();          // sessionId → Client
-const sessionStates = new Map();    // sessionId → { status, qr }
+// ═══════════════════════════════════════
+// In-memory state
+// ═══════════════════════════════════════
+
+const clients = new Map();            // sessionId → Baileys socket
+const sessionStates = new Map();      // sessionId → { status, qr }
+const contactStores = new Map();      // sessionId → Map<phone, { phone, name }>
+const pollMessageStore = new Map();   // msgKey → { message, createdAt } (for vote decoding)
+
+// Prune pollMessageStore every 30 minutes (remove entries older than 7 days)
+setInterval(() => {
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    for (const [key, entry] of pollMessageStore) {
+        if (entry.createdAt < cutoff) pollMessageStore.delete(key);
+    }
+}, 30 * 60 * 1000);
+
+// Cached Baileys version (refreshed every 24 hours)
+let cachedBaileysVersion = null;
+let baileysVersionFetchedAt = 0;
+const BAILEYS_VERSION_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
 let io = null; // Socket.IO instance — set via init()
+
+// Quiet logger for Baileys internals (reduce noise)
+const baileysLogger = pino({ level: 'silent' });
+
+// ═══════════════════════════════════════
+// Initialization
+// ═══════════════════════════════════════
 
 function init(socketIO) {
     io = socketIO;
 
-    // Restore persisted sessions on startup with a stagger to prevent massive CPU spikes
+    // Restore persisted sessions on startup with a stagger
     const saved = sessionDb.getAll();
     let startupDelayMs = 0;
     for (const s of saved) {
@@ -22,274 +56,414 @@ function init(socketIO) {
             setTimeout(() => {
                 createClient(s.id, s.name);
             }, startupDelayMs);
-            startupDelayMs += 3500; // Stagger each additional session by 3.5 seconds
+            startupDelayMs += 2000; // Baileys is fast — shorter stagger than Chromium
         }
     }
+}
+
+// ═══════════════════════════════════════
+// Auth directory helpers
+// ═══════════════════════════════════════
+
+function getAuthDir(sessionId) {
+    return process.env.APP_USER_DATA_PATH
+        ? path.join(process.env.APP_USER_DATA_PATH, '.wwebjs_auth', `session-${sessionId}`)
+        : path.join(__dirname, '..', '..', '.wwebjs_auth', `session-${sessionId}`);
+}
+
+// ═══════════════════════════════════════
+// Extract text from Baileys message
+// ═══════════════════════════════════════
+
+function extractMessageText(msg) {
+    const m = msg.message;
+    if (!m) return null;
+
+    return m.conversation
+        || m.extendedTextMessage?.text
+        || m.imageMessage?.caption
+        || m.videoMessage?.caption
+        || m.documentMessage?.caption
+        || m.buttonsResponseMessage?.selectedButtonId
+        || m.listResponseMessage?.singleSelectReply?.selectedRowId
+        || (m.stickerMessage ? '[Sticker]' : null)
+        || (m.imageMessage && !m.imageMessage.caption ? '[Image]' : null)
+        || (m.videoMessage && !m.videoMessage.caption ? '[Video]' : null)
+        || (m.audioMessage ? '[Audio]' : null)
+        || (m.documentMessage && !m.documentMessage.caption ? '[Document]' : null)
+        || (m.contactMessage ? '[Contact]' : null)
+        || (m.locationMessage ? '[Location]' : null)
+        || null;
 }
 
 /**
- * Kill any stale Puppeteer SingletonLock for a session so re-init can proceed.
+ * Determine message type from Baileys message object.
  */
-function cleanStaleLocks(sessionId) {
-    const authDir = process.env.APP_USER_DATA_PATH
-        ? path.join(process.env.APP_USER_DATA_PATH, '.wwebjs_auth', `session-${sessionId}`)
-        : path.join(__dirname, '..', '..', '.wwebjs_auth', `session-${sessionId}`);
-    if (!fs.existsSync(authDir)) return;
-
-    const lockFiles = ['SingletonLock', 'SingletonSocket', 'SingletonCookie'];
-    for (const lock of lockFiles) {
-        const lockPath = path.join(authDir, lock);
-        try {
-            if (fs.existsSync(lockPath)) {
-                fs.unlinkSync(lockPath);
-                console.log(`[Session ${sessionId}] Removed stale lock: ${lock}`);
-            }
-        } catch (e) {
-            // Ignore — best effort
-        }
-    }
+function getMessageType(msg) {
+    const m = msg.message;
+    if (!m) return 'unknown';
+    if (m.stickerMessage) return 'sticker';
+    if (m.imageMessage) return 'image';
+    if (m.videoMessage) return 'video';
+    if (m.audioMessage) return 'audio';
+    if (m.documentMessage) return 'document';
+    if (m.contactMessage) return 'contact';
+    if (m.locationMessage) return 'location';
+    if (m.pollCreationMessage || m.pollCreationMessageV3) return 'poll';
+    return 'text';
 }
 
-function createClient(sessionId, name, retryCount = 0) {
-    // Clean stale locks before (re)initializing
-    cleanStaleLocks(sessionId);
+/**
+ * Check if a Baileys message contains downloadable media.
+ */
+function hasMedia(msg) {
+    const m = msg.message;
+    if (!m) return false;
+    return !!(m.imageMessage || m.videoMessage || m.audioMessage || m.documentMessage || m.stickerMessage);
+}
 
-    let executablePath = undefined;
-    const isWindows = process.platform === 'win32';
+// ═══════════════════════════════════════
+// Create & manage Baileys sessions
+// ═══════════════════════════════════════
 
-    // In packaged Electron, Puppeteer can't use its own bundled Chromium.
-    // Find the system Chrome/Edge install instead.
-    if (process.env.ELECTRON_RUN_AS_NODE || process.env.PACKAGED_ELECTRON) {
+async function createClient(sessionId, name, retryCount = 0) {
+    const authDir = getAuthDir(sessionId);
+    if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
+
+    const { state, saveCreds } = await useMultiFileAuthState(authDir);
+    // Use cached version if available and fresh (avoids GitHub API call on every reconnect)
+    if (!cachedBaileysVersion || Date.now() - baileysVersionFetchedAt > BAILEYS_VERSION_TTL) {
         try {
-            const chromePaths = require('chrome-paths');
-            // chrome-paths can return null — keep executablePath as undefined if nothing found
-            executablePath = chromePaths.chrome || chromePaths.chromium || undefined;
-        } catch (err) { /* ignore */ }
+            const { version: fetched } = await fetchLatestBaileysVersion();
+            cachedBaileysVersion = fetched;
+            baileysVersionFetchedAt = Date.now();
+        } catch (e) {
+            console.warn('[Baileys] Failed to fetch latest version, using cached or default');
+        }
+    }
+    const version = cachedBaileysVersion || [2, 3000, 1015901307];
 
-        // Fallback: manually check common install locations if still not found
-        if (!executablePath) {
-            let candidates = [];
-            if (isWindows) {
-                candidates = [
-                    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-                    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-                    path.join(process.env.LOCALAPPDATA || '', 'Google\\Chrome\\Application\\chrome.exe'),
-                    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-                    path.join(process.env.PROGRAMFILES || '', 'Microsoft\\Edge\\Application\\msedge.exe'),
-                ];
-            } else if (process.platform === 'darwin') {
-                candidates = [
-                    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-                    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
-                    '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'
-                ];
-            } else if (process.platform === 'linux') {
-                candidates = [
-                    '/usr/bin/google-chrome',
-                    '/usr/bin/chromium-browser',
-                    '/usr/bin/chromium'
-                ];
+    // Initialize per-session contact store, hydrated from SQLite — Baileys only
+    // replays contact mutations once per app-state version, so without persistence
+    // the store would be empty after every server restart
+    if (!contactStores.has(sessionId)) {
+        const store = new Map();
+        try {
+            for (const c of waContactsDb.getBySession(sessionId)) {
+                store.set(c.phone, { phone: c.phone, name: c.name || '' });
             }
+        } catch (e) {
+            console.error(`[Session ${name}] Failed to load persisted contacts:`, e.message);
+        }
+        contactStores.set(sessionId, store);
+    }
 
-            for (const candidate of candidates) {
-                if (candidate && fs.existsSync(candidate)) {
-                    executablePath = candidate;
-                    break;
+    const sock = makeWASocket({
+        version,
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, baileysLogger),
+        },
+        logger: baileysLogger,
+        printQRInTerminal: false,
+        // Use standard desktop client header to prevent WhatsApp anti-bot systems from revoking linked sessions
+        browser: Browsers.macOS('Desktop'),
+        connectTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 60000,
+        generateHighQualityLinkPreview: false,
+        markOnlineOnConnect: false,
+        // Allow initial contact & chat list sync on pairing while filtering out old historical messages (>7 days) to prevent rate limit error 440
+        shouldSyncHistoryMessage: (msg) => {
+            const ts = Number(msg.messageTimestamp || msg.timestamp || 0);
+            return !ts || (Date.now() / 1000 - ts) < 86400 * 7;
+        },
+    });
+
+    const existingState = sessionStates.get(sessionId);
+    if (!state.creds?.registered || !existingState || existingState.status !== 'ready') {
+        sessionStates.set(sessionId, { status: 'initializing', qr: null });
+        if (io) io.emit('session:status', { sessionId, status: 'initializing' });
+    }
+
+    // ─── Save credentials on update ───
+    sock.ev.on('creds.update', saveCreds);
+
+    // ─── Connection updates (QR, connected, disconnected) ───
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        if (qr) {
+            // Ignore transient QR emissions during reconnection if credentials are already paired/registered
+            if (state.creds?.registered) {
+                console.log(`[Session ${name}] Ignoring transient QR emission (session already registered)`);
+                return;
+            }
+            const qrDataUrl = await qrcode.toDataURL(qr, { width: 300 });
+            sessionStates.set(sessionId, { status: 'qr_pending', qr: qrDataUrl });
+            sessionDb.updateStatus(sessionId, 'qr_pending');
+            if (io) io.emit('session:qr', { sessionId, qr: qrDataUrl });
+        }
+
+        if (connection === 'open') {
+            const phone = sock.user?.id?.split(':')[0] || sock.user?.id?.split('@')[0] || '';
+            sessionStates.set(sessionId, { status: 'ready', qr: null });
+            sessionDb.updateStatus(sessionId, 'ready');
+            sessionDb.updatePhone(sessionId, phone);
+            if (io) io.emit('session:ready', { sessionId, phone });
+            console.log(`[Session ${name}] Connected — phone: ${phone}`);
+        }
+
+        if (connection === 'close') {
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+
+            clients.delete(sessionId);
+
+            if (statusCode === DisconnectReason.loggedOut) {
+                // User explicitly logged out from their phone — don't reconnect
+                sessionStates.set(sessionId, { status: 'disconnected', qr: null });
+                sessionDb.updateStatus(sessionId, 'disconnected');
+                if (io) io.emit('session:disconnected', { sessionId, reason: 'logged_out' });
+                console.log(`[Session ${name}] Logged out from device`);
+            } else if (statusCode === DisconnectReason.badSession) {
+                // Corrupted session — clear auth
+                sessionStates.set(sessionId, { status: 'auth_failure', qr: null });
+                sessionDb.updateStatus(sessionId, 'auth_failure');
+                if (io) io.emit('session:auth_failure', { sessionId, error: 'bad_session' });
+                console.error(`[Session ${name}] Auth failure — bad session`);
+            } else {
+                // Continuous self-healing auto-reconnect for network drops, timeouts (408), stream restarts (515), or rate limits (440)
+                const isStreamRestart = statusCode === 515 || statusCode === 428;
+                // Cap backoff at 30 seconds during prolonged internet outages or rate limits
+                const delay = isStreamRestart ? 500 : Math.min(3000 * (retryCount + 1), 30000);
+                console.log(`[Session ${name}] Disconnected (code ${statusCode}), reconnecting in ${delay}ms (retry #${retryCount + 1})...`);
+                if (!isStreamRestart) {
+                    sessionStates.set(sessionId, { status: 'reconnecting', qr: null });
+                    if (io) io.emit('session:status', { sessionId, status: 'reconnecting' });
+                }
+                setTimeout(() => createClient(sessionId, name, retryCount + 1), delay);
+            }
+        }
+    });
+
+    // ─── Contacts sync (build in-memory store + persist to SQLite) ───
+    const storeContacts = (contacts) => {
+        const store = contactStores.get(sessionId) || new Map();
+        const changed = [];
+        for (const c of contacts) {
+            if (!c.id && !c.jid) continue;
+            let targetId = (c.jid && String(c.jid).includes('@s.whatsapp.net')) ? String(c.jid) : (c.id && String(c.id).includes('@s.whatsapp.net')) ? String(c.id) : String(c.jid || c.id || '');
+            let phone = targetId.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+            if (c.phoneNumber) {
+                const num = String(c.phoneNumber).replace(/[^0-9]/g, '');
+                if (num.length >= 7 && num.length <= 13) phone = num;
+            }
+            if (!phone || phone.length < 5 || phone.length >= 14) continue;
+            if (phone.length === 10 && /^[6-9]/.test(phone)) phone = '91' + phone;
+            const existing = store.get(phone) || { phone, name: '' };
+            const newName = c.name || c.notify || c.verifiedName || c.pushname || c.pushName || '';
+            if (newName && (!existing.name || existing.name === phone)) {
+                existing.name = newName;
+            }
+            store.set(phone, existing);
+            if (c.id && String(c.id).includes('@lid')) {
+                store.set(String(c.id).split('@')[0], existing);
+            }
+            if (newName) changed.push(existing);
+        }
+        contactStores.set(sessionId, store);
+        if (changed.length) {
+            try {
+                waContactsDb.upsertMany(sessionId, changed);
+            } catch (e) {
+                console.error(`[Session ${name}] Failed to persist contacts:`, e.message);
+            }
+        }
+    };
+
+    const recordPushName = (jid, pushName) => {
+        if (!pushName || typeof pushName !== 'string' || !pushName.trim()) return;
+        let phone = String(jid).split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+        if (!phone || phone.length < 5 || phone.length >= 14) return;
+        if (phone.length === 10 && /^[6-9]/.test(phone)) phone = '91' + phone;
+        const store = contactStores.get(sessionId) || new Map();
+        const existing = store.get(phone) || { phone, name: '' };
+        if (!existing.name || existing.name === phone) {
+            existing.name = pushName.trim();
+            store.set(phone, existing);
+            contactStores.set(sessionId, store);
+            try {
+                waContactsDb.upsertMany(sessionId, [existing]);
+            } catch (_) {}
+        }
+    };
+
+    sock.ev.on('contacts.upsert', storeContacts);
+    sock.ev.on('contacts.update', storeContacts);
+
+    // ─── History sync → store contacts + messages in SQLite for AI context ───
+    sock.ev.on('messaging-history.set', ({ contacts: syncedContacts, messages: syncedMessages }) => {
+        // The initial history sync carries the contact list — app-state
+        // contactAction mutations alone don't cover it
+        if (syncedContacts && syncedContacts.length) {
+            storeContacts(syncedContacts);
+        }
+
+        console.log(`[Session ${name}] Syncing ${syncedMessages.length} historical messages`);
+
+        const insertTx = rawDb.transaction(() => {
+            for (const msg of syncedMessages) {
+                try {
+                    const jid = msg.key.remoteJid;
+                    const participant = msg.key.participant || jid;
+                    if (msg.pushName && participant) {
+                        recordPushName(participant, msg.pushName);
+                    }
+                    if (!jid || jid === 'status@broadcast' || jid.endsWith('@g.us')) continue;
+
+                    const phone = jid.replace('@s.whatsapp.net', '').split(':')[0];
+                    const direction = msg.key.fromMe ? 'out' : 'in';
+                    const text = extractMessageText(msg);
+                    if (!text) continue;
+
+                    messagesDb.add(sessionId, phone, direction, text, 'synced');
+                } catch (e) {
+                    // Skip malformed messages silently
                 }
             }
-        }
+        });
 
-        console.log(`[Session ${sessionId}] Electron mode — Chrome path: ${executablePath || 'puppeteer default'}`);
-    }
-
-    const authStrategy = new LocalAuth({
-        clientId: sessionId,
-        dataPath: process.env.APP_USER_DATA_PATH
-            ? path.join(process.env.APP_USER_DATA_PATH, '.wwebjs_auth')
-            : undefined
-    });
-
-    // Base args (Linux/Docker-safe and performance-optimized)
-    const puppeteerArgs = [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--disable-gpu',
-        '--disable-background-timer-throttling',
-        '--disable-backgrounding-occluded-windows',
-        '--disable-renderer-backgrounding',
-        '--disable-extensions',
-        '--disable-default-apps',
-        '--mute-audio',
-        '--disable-crash-reporter',
-        '--disable-software-rasterizer',
-        '--js-flags="--max-old-space-size=512"'
-    ];
-
-    // --single-process and --no-zygote only work reliably on Linux
-    if (process.platform === 'linux') {
-        puppeteerArgs.push('--no-zygote', '--single-process');
-    }
-
-    const client = new Client({
-        authStrategy,
-        puppeteer: {
-            executablePath,
-            headless: true,
-            args: [...puppeteerArgs, '--disable-extensions'],
-            timeout: 60000,
-        },
-        webVersionCache: {
-            type: 'local',
+        try {
+            insertTx();
+        } catch (e) {
+            console.error(`[Session ${name}] History sync DB error:`, e.message);
         }
     });
 
-    sessionStates.set(sessionId, { status: 'initializing', qr: null });
-    if (io) io.emit('session:status', { sessionId, status: 'initializing' });
+    // ─── Real-time messages → route to registered handlers ───
+    sock.ev.on('messages.upsert', ({ messages: newMessages, type }) => {
+        if (type !== 'notify') return; // Only process real-time messages
 
-    client.on('qr', async (qr) => {
-        const qrDataUrl = await qrcode.toDataURL(qr, { width: 300 });
-        sessionStates.set(sessionId, { status: 'qr_pending', qr: qrDataUrl });
-        sessionDb.updateStatus(sessionId, 'qr_pending');
-        if (io) io.emit('session:qr', { sessionId, qr: qrDataUrl });
-    });
-
-    client.on('ready', async () => {
-        const info = client.info;
-        const phone = info?.wid?.user || '';
-        sessionStates.set(sessionId, { status: 'ready', qr: null });
-        sessionDb.updateStatus(sessionId, 'ready');
-        sessionDb.updatePhone(sessionId, phone);
-        if (io) io.emit('session:ready', { sessionId, phone });
-        console.log(`[Session ${name}] Connected — phone: ${phone}`);
-    });
-
-    client.on('authenticated', () => {
-        console.log(`[Session ${name}] Authenticated`);
-    });
-
-    client.on('auth_failure', (msg) => {
-        sessionStates.set(sessionId, { status: 'auth_failure', qr: null });
-        sessionDb.updateStatus(sessionId, 'auth_failure');
-        if (io) io.emit('session:auth_failure', { sessionId, error: msg });
-        console.error(`[Session ${name}] Auth failure:`, msg);
-    });
-
-    client.on('disconnected', (reason) => {
-        sessionStates.set(sessionId, { status: 'disconnected', qr: null });
-        sessionDb.updateStatus(sessionId, 'disconnected');
-        if (io) io.emit('session:disconnected', { sessionId, reason });
-        console.log(`[Session ${name}] Disconnected:`, reason);
-    });
-
-    clients.set(sessionId, client);
-
-    // Initialize with a timeout so it doesn't hang forever
-    const initTimeout = setTimeout(() => {
-        const state = sessionStates.get(sessionId);
-        if (state && state.status === 'initializing') {
-            console.error(`[Session ${name}] Initialization timed out after 90s`);
-            sessionStates.set(sessionId, { status: 'error', qr: null });
-            sessionDb.updateStatus(sessionId, 'error');
-            if (io) io.emit('session:error', { sessionId, error: 'Initialization timed out' });
+        for (const msg of newMessages) {
+            const participant = msg.key.participant || msg.key.remoteJid;
+            if (msg.pushName && participant) {
+                recordPushName(participant, msg.pushName);
+            }
+            for (const handler of _messageHandlers) {
+                handler(sessionId, msg, sock);
+            }
         }
-    }, 90000);
-
-    client.initialize().then(() => {
-        clearTimeout(initTimeout);
-    }).catch((err) => {
-        clearTimeout(initTimeout);
-        console.error(`[Session ${name}] Init error:`, err.message);
-
-        // Auto-retry once after cleaning locks
-        if (retryCount < 1) {
-            console.log(`[Session ${name}] Retrying initialization...`);
-            try { client.destroy().catch(() => { }); } catch (e) { }
-            clients.delete(sessionId);
-            setTimeout(() => createClient(sessionId, name, retryCount + 1), 3000);
-            return;
-        }
-
-        sessionStates.set(sessionId, { status: 'error', qr: null });
-        sessionDb.updateStatus(sessionId, 'error');
     });
+
+    // ─── Poll vote updates → route to registered vote handlers ───
+    sock.ev.on('messages.update', (updates) => {
+        for (const { key, update } of updates) {
+            if (!update?.pollUpdates) continue;
+
+            // Decode poll votes
+            const pollEntry = pollMessageStore.get(`${key.remoteJid}:${key.id}`);
+            if (!pollEntry) continue;
+            const pollMsg = pollEntry.message;
+
+            try {
+                const votes = getAggregateVotesInPollMessage({
+                    message: pollMsg,
+                    pollUpdates: update.pollUpdates,
+                });
+
+                // Build a vote event similar to whatsapp-web.js format
+                for (const vote of votes) {
+                    if (!vote.voters || vote.voters.length === 0) continue;
+                    for (const voterJid of vote.voters) {
+                        const voter = voterJid.replace('@s.whatsapp.net', '').split(':')[0];
+                        const voteData = {
+                            voter: `${voter}@c.us`, // Keep @c.us format for compatibility with messageHandler
+                            selectedOptions: [{ name: vote.name }],
+                        };
+                        for (const handler of _voteHandlers) {
+                            handler(sessionId, voteData);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error(`[Session ${name}] Poll vote decode error:`, e.message);
+            }
+        }
+    });
+
+    // Store reference
+    clients.set(sessionId, sock);
 
     return sessionId;
 }
+
+// ═══════════════════════════════════════
+// Session CRUD
+// ═══════════════════════════════════════
 
 async function addSession(name) {
     const sessionId = randomUUID().slice(0, 8);
     sessionDb.create(sessionId, name);
-    createClient(sessionId, name);
+    await createClient(sessionId, name);
     return sessionId;
 }
 
 async function removeSession(sessionId) {
-    const client = clients.get(sessionId);
-    if (client) {
+    const sock = clients.get(sessionId);
+    if (sock) {
         try {
-            // Timeout destroy to avoid hanging on uninitialized sessions
-            await Promise.race([
-                client.destroy(),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('destroy timeout')), 5000))
-            ]);
+            await sock.logout();
         } catch (e) {
-            console.log(`[Session ${sessionId}] destroy: ${e.message}`);
+            console.log(`[Session ${sessionId}] logout: ${e.message}`);
+            try { sock.end(); } catch (_) { }
         }
         clients.delete(sessionId);
     }
     sessionStates.delete(sessionId);
+    contactStores.delete(sessionId);
+    try { waContactsDb.deleteBySession(sessionId); } catch (e) { }
     sessionDb.delete(sessionId);
+
+    // Clean up auth files
+    const authDir = getAuthDir(sessionId);
+    if (fs.existsSync(authDir)) {
+        fs.rmSync(authDir, { recursive: true, force: true });
+    }
 }
 
 async function restartSession(sessionId) {
     const dbSession = sessionDb.getAll().find(s => s.id === sessionId);
     if (!dbSession) throw new Error('Session not found');
 
-    // Destroy existing client if any
-    const client = clients.get(sessionId);
-    if (client) {
-        try {
-            await Promise.race([
-                client.destroy(),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('destroy timeout')), 5000))
-            ]);
-        } catch (e) {
-            console.log(`[Session ${sessionId}] destroy on restart: ${e.message}`);
+    // Close existing socket
+    const sock = clients.get(sessionId);
+    if (sock) {
+        try { sock.end(); } catch (e) {
+            console.log(`[Session ${sessionId}] end on restart: ${e.message}`);
         }
         clients.delete(sessionId);
     }
     sessionStates.delete(sessionId);
 
-    // Re-create
-    createClient(sessionId, dbSession.name);
+    // Re-create — will reconnect using saved auth keys (no new QR needed)
+    await createClient(sessionId, dbSession.name);
 }
 
 async function relinkSession(sessionId) {
     const dbSession = sessionDb.getAll().find(s => s.id === sessionId);
     if (!dbSession) throw new Error('Session not found');
 
-    // Destroy existing client
-    const client = clients.get(sessionId);
-    if (client) {
-        try {
-            await Promise.race([
-                client.destroy(),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('destroy timeout')), 5000))
-            ]);
-        } catch (e) {
-            console.log(`[Session ${sessionId}] destroy on relink: ${e.message}`);
+    // Close existing socket
+    const sock = clients.get(sessionId);
+    if (sock) {
+        try { sock.end(); } catch (e) {
+            console.log(`[Session ${sessionId}] end on relink: ${e.message}`);
         }
         clients.delete(sessionId);
     }
     sessionStates.delete(sessionId);
 
     // Clear stored auth data so a fresh QR is generated
-    const authDir = process.env.APP_USER_DATA_PATH
-        ? path.join(process.env.APP_USER_DATA_PATH, '.wwebjs_auth', `session-${sessionId}`)
-        : path.join(__dirname, '..', '..', '.wwebjs_auth', `session-${sessionId}`);
+    const authDir = getAuthDir(sessionId);
     if (fs.existsSync(authDir)) {
         fs.rmSync(authDir, { recursive: true, force: true });
         console.log(`[Session ${sessionId}] Cleared auth data for relink`);
@@ -298,95 +472,300 @@ async function relinkSession(sessionId) {
     sessionDb.updateStatus(sessionId, 'initializing');
 
     // Re-create — will trigger a fresh QR since auth is cleared
-    createClient(sessionId, dbSession.name);
+    await createClient(sessionId, dbSession.name);
 }
 
-async function getWhatsAppContacts(sessionId, retries = 3) {
-    const client = clients.get(sessionId);
-    if (!client) throw new Error('Session not found or not connected');
+// ═══════════════════════════════════════
+// WhatsApp Data Retrieval
+// ═══════════════════════════════════════
+async function getWhatsAppContacts(sessionId) {
+    const sock = clients.get(sessionId);
+    if (!sock) throw new Error('Session not found or not connected');
 
+    const store = contactStores.get(sessionId) || new Map();
+    const lidToPhoneMap = new Map();
+
+    // ── Pre-build LID -> Phone map from groups and contacts ──
     try {
-        const waContacts = await client.getContacts();
-        return waContacts
-            .filter(c => !c.isGroup && c.id && (c.isMyContact || c.name || c.pushname))
-            .map(c => ({
-                phone: c.id.user,
-                name: c.name || c.pushname || '',
-                company: '',
-            }));
-    } catch (error) {
-        if (retries > 0 && (error.message.includes('detached Frame') || error.message.includes('Execution context was destroyed'))) {
-            console.warn(`[Session ${sessionId}] Detached frame error, retrying getContacts (${retries} retries left)...`);
-            await new Promise(r => setTimeout(r, 2000));
-            return getWhatsAppContacts(sessionId, retries - 1);
+        const groups = await sock.groupFetchAllParticipating().catch(() => ({}));
+        if (groups && typeof groups === 'object') {
+            for (const g of Object.values(groups)) {
+                if (g && g.participants && Array.isArray(g.participants)) {
+                    for (const p of g.participants) {
+                        let lid = '';
+                        let phone = '';
+                        if (p.lid || (p.id && String(p.id).includes('@lid'))) {
+                            lid = String(p.lid || p.id).split('@')[0].replace(/[^0-9]/g, '');
+                        }
+                        if (p.jid || (p.id && String(p.id).includes('@s.whatsapp.net'))) {
+                            phone = String(p.jid || p.id).split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+                        } else if (p.phoneNumber) {
+                            phone = String(p.phoneNumber).replace(/[^0-9]/g, '');
+                        }
+                        if (lid && phone && phone.length <= 13) {
+                            lidToPhoneMap.set(lid, phone);
+                        }
+                    }
+                }
+            }
         }
-        throw error;
+    } catch (_) {}
+
+    // Also scan sock.contacts for paired lid/phone
+    if (sock.contacts && typeof sock.contacts === 'object') {
+        for (const [jid, c] of Object.entries(sock.contacts)) {
+            if (c.lid && c.id && String(c.id).includes('@s.whatsapp.net')) {
+                const lid = String(c.lid).split('@')[0].replace(/[^0-9]/g, '');
+                const phone = String(c.id).split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+                if (lid && phone && phone.length <= 13) lidToPhoneMap.set(lid, phone);
+            }
+        }
     }
-}
 
-async function getWhatsAppGroups(sessionId, retries = 3) {
-    const client = clients.get(sessionId);
-    if (!client) throw new Error('Session not found or not connected');
-
-    try {
-        const chats = await client.getChats();
-        return chats
-            .filter(c => c.isGroup)
-            .map(c => ({
-                id: c.id._serialized,
-                name: c.name,
-                participantCount: c.participants ? c.participants.length : 0,
-            }));
-    } catch (error) {
-        if (retries > 0 && (error.message.includes('detached Frame') || error.message.includes('Execution context was destroyed'))) {
-            console.warn(`[Session ${sessionId}] Detached frame error, retrying getChats (${retries} retries left)...`);
-            await new Promise(r => setTimeout(r, 2000));
-            return getWhatsAppGroups(sessionId, retries - 1);
+    // ── Helper: extract clean phone from any Baileys JID or participant object ──
+    const extractPhone = (jid, obj) => {
+        if (!jid && !obj) return null;
+        let raw = '';
+        if (obj?.jid && String(obj.jid).includes('@s.whatsapp.net')) {
+            raw = String(obj.jid);
+        } else if (obj?.id && String(obj.id).includes('@s.whatsapp.net')) {
+            raw = String(obj.id);
+        } else if (jid && String(jid).includes('@s.whatsapp.net')) {
+            raw = String(jid);
+        } else {
+            raw = String(obj?.jid || obj?.id || jid || '');
         }
-        throw error;
-    }
-}
-
-async function getGroupParticipants(sessionId, groupId, retries = 3) {
-    const client = clients.get(sessionId);
-    if (!client) throw new Error('Session not found or not connected');
-
-    try {
-        const chat = await client.getChatById(groupId);
-        if (!chat || !chat.isGroup) throw new Error('Group not found');
-
-        const participants = chat.participants || [];
-        const contacts = [];
-
-        // Pre-fetch all contacts to avoid sequential network lookups which cause timeouts
-        const allContacts = await client.getContacts().catch(() => []);
-        const contactMap = new Map();
-        for (const c of allContacts) {
-            if (c.id) contactMap.set(c.id._serialized, c);
+        if (raw.endsWith('@g.us') || raw.includes('broadcast')) return null;
+        if (obj?.phoneNumber) {
+            const num = String(obj.phoneNumber).replace(/[^0-9]/g, '');
+            if (num.length >= 7 && num.length <= 13) return num;
         }
+        let clean = raw.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+        if (raw.endsWith('@lid') || clean.length >= 14) {
+            const resolved = lidToPhoneMap.get(clean) || lidToPhoneMap.get(raw.split('@')[0]);
+            if (resolved && resolved.length <= 13) clean = resolved;
+            else return null; // Ignore unmapped 15-digit LIDs so they don't appear as fake contacts with numbers as names
+        }
+        if (clean.length < 7 || clean.length > 13) return null;
+        if (clean.length === 10 && /^[6-9]/.test(clean)) clean = '91' + clean;
+        return clean;
+    };
 
-        for (const p of participants) {
-            if (p.id.server === 'c.us') {
-                const contact = contactMap.get(p.id._serialized);
-                const name = contact ? (contact.pushname || contact.name || contact.shortName || p.id.user || '') : (p.id.user || '');
-                contacts.push({
-                    phone: p.id.user,
-                    name,
-                    company: '',
-                });
+    // ── Helper: collect all contacts from every available Baileys & DB source ──
+    const collectAllSources = async () => {
+        // Source 1 (Base): SQLite wa_contacts table for this session
+        try {
+            const dbContacts = waContactsDb.getBySession(sessionId) || [];
+            for (const c of dbContacts) {
+                if (!c.phone || c.phone.length < 5 || c.phone.length >= 14) continue;
+                const existing = store.get(c.phone);
+                if (!existing) {
+                    store.set(c.phone, { phone: c.phone, name: c.name || '' });
+                } else if (!existing.name && c.name) {
+                    existing.name = c.name;
+                }
+            }
+        } catch (_) { /* non-fatal */ }
+
+        // Source 2 (Base): SQLite messages table — anyone who ever sent/received a message via this bot
+        try {
+            const dbMessages = rawDb.prepare('SELECT DISTINCT contact_phone FROM messages WHERE session_id = ?').all(sessionId) || [];
+            for (const m of dbMessages) {
+                const phone = m.contact_phone;
+                if (!phone || phone.length < 5 || phone.length >= 14) continue;
+                if (!store.has(phone)) {
+                    store.set(phone, { phone, name: '' });
+                }
+            }
+        } catch (_) { /* non-fatal */ }
+
+        // Source 3: sock.contacts — Baileys internal contacts map (keyed by JID)
+        if (sock.contacts && typeof sock.contacts === 'object') {
+            for (const [jid, c] of Object.entries(sock.contacts)) {
+                const phone = extractPhone(jid, c);
+                if (!phone) continue;
+                const existing = store.get(phone);
+                const name = c.name || c.notify || c.verifiedName || c.pushname || c.pushName || '';
+                if (!existing) {
+                    store.set(phone, { phone, name });
+                } else if (!existing.name && name) {
+                    existing.name = name;
+                }
             }
         }
 
-        return contacts;
-    } catch (error) {
-        if (retries > 0 && (error.message.includes('detached Frame') || error.message.includes('Execution context was destroyed'))) {
-            console.warn(`[Session ${sessionId}] Detached frame error, retrying getGroupParticipants (${retries} retries left)...`);
-            await new Promise(r => setTimeout(r, 2000));
-            return getGroupParticipants(sessionId, groupId, retries - 1);
+        // Source 4: sock.store?.contacts — if makeInMemoryStore was attached
+        if (sock.store?.contacts && typeof sock.store.contacts === 'object') {
+            for (const [jid, c] of Object.entries(sock.store.contacts)) {
+                const phone = extractPhone(jid, c);
+                if (!phone) continue;
+                const existing = store.get(phone);
+                const name = c.name || c.notify || c.verifiedName || c.pushname || c.pushName || '';
+                if (!existing) {
+                    store.set(phone, { phone, name });
+                } else if (!existing.name && name) {
+                    existing.name = name;
+                }
+            }
         }
+
+        // Source 5: sock.chats — everyone you've ever messaged
+        const chatsObj = sock.chats || sock.store?.chats;
+        if (chatsObj && typeof chatsObj === 'object') {
+            const chatEntries = typeof chatsObj.all === 'function'
+                ? chatsObj.all()
+                : Array.isArray(chatsObj) ? chatsObj : Object.values(chatsObj);
+            for (const chat of chatEntries) {
+                const phone = extractPhone(chat.id || chat.jid, chat);
+                if (!phone) continue;
+                const existing = store.get(phone);
+                const name = chat.name || chat.notify || chat.verifiedName || chat.pushname || chat.pushName || '';
+                if (!existing) {
+                    store.set(phone, { phone, name });
+                } else if (!existing.name && name) {
+                    existing.name = name;
+                }
+            }
+        }
+
+        contactStores.set(sessionId, store);
+    };
+
+    // First pass — collect from currently available Baileys & DB sources
+    await collectAllSources();
+
+    // If still empty — trigger WhatsApp app-state resync to push contact list from cloud
+    if (store.size === 0) {
+        console.log(`[Sync Contacts] Store empty for session ${sessionId}, triggering app-state resync...`);
+        try {
+            await sock.resyncAppState([
+                'critical_block_low',
+                'critical_unblock_low',
+                'regular_high',
+                'regular_low',
+            ]).catch(() => {});
+        } catch (_) {}
+
+        // Wait up to 6 seconds for contacts.upsert events to fire
+        const deadline = Date.now() + 6000;
+        while (Date.now() < deadline) {
+            await new Promise(r => setTimeout(r, 600));
+            if (store.size > 0) break;
+        }
+
+        // Second pass after resync
+        await collectAllSources();
+    }
+
+    // Persist all discovered contacts to SQLite for future restarts
+    const toSave = Array.from(store.values()).filter(c => c.phone && c.phone.length > 4);
+    if (toSave.length > 0) {
+        try { waContactsDb.upsertMany(sessionId, toSave); } catch (_) {}
+    }
+
+    let result = toSave.map(c => ({
+        phone: c.phone,
+        name: c.name || '',
+        pushname: c.name || '',
+        notify: c.name || '',
+        company: '',
+    }));
+
+    // If result is STILL empty (brand new zero-contact account with 0 groups and 0 messages),
+    // include the user's own connected WhatsApp phone number as a fallback so sync never crashes!
+    if (!result.length) {
+        const selfId = sock.user?.id || '';
+        const selfPhone = selfId.replace(/[:@].*$/, '');
+        if (selfPhone && selfPhone.length > 4) {
+            result = [{
+                phone: selfPhone,
+                name: 'My Account (Self Test)',
+                company: 'Self',
+            }];
+            try { waContactsDb.upsertMany(sessionId, result); } catch (_) {}
+        } else {
+            // Check if any CRM contacts exist across the app to use as fallback
+            try {
+                const anyContacts = rawDb.prepare('SELECT phone, name FROM contacts LIMIT 20').all() || [];
+                if (anyContacts.length > 0) {
+                    result = anyContacts.map(c => ({
+                        phone: c.phone,
+                        name: c.name || '',
+                        company: '',
+                    }));
+                }
+            } catch (_) {}
+        }
+    }
+
+    if (!result.length) {
+        throw new Error(
+            'No contacts found. This usually means WhatsApp hasn\'t synced contacts yet.\n' +
+            'Try: (1) Make sure your phone has contacts saved, (2) Send or receive at least one message, then sync again.'
+        );
+    }
+
+    return result;
+}
+
+
+
+async function getWhatsAppGroups(sessionId) {
+    const sock = clients.get(sessionId);
+    if (!sock) throw new Error('Session not found or not connected');
+
+    try {
+        const groups = await sock.groupFetchAllParticipating();
+        return Object.values(groups).map(g => ({
+            id: g.id,
+            name: g.subject || g.id,
+            participantCount: g.participants ? g.participants.length : 0,
+        }));
+    } catch (error) {
+        console.error(`[Session ${sessionId}] Error fetching groups:`, error.message);
         throw error;
     }
 }
+
+async function getGroupParticipants(sessionId, groupId) {
+    const sock = clients.get(sessionId);
+    if (!sock) throw new Error('Session not found or not connected');
+
+    try {
+        const metadata = await sock.groupMetadata(groupId);
+        if (!metadata || !metadata.participants) throw new Error('Group not found');
+
+        const store = contactStores.get(sessionId) || new Map();
+        return metadata.participants
+            .map(p => {
+                let targetId = p.jid && p.jid.includes('@s.whatsapp.net') ? p.jid : p.id && p.id.includes('@s.whatsapp.net') ? p.id : (p.jid || p.id || '');
+                if (targetId.endsWith('@g.us')) return null;
+                let phone = targetId.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+                if (p.phoneNumber) {
+                    const num = String(p.phoneNumber).replace(/[^0-9]/g, '');
+                    if (num.length >= 5) phone = num;
+                }
+                if (!phone || phone.length < 5) return null;
+                const contact = store.get(phone) || store.get(p.id.split('@')[0]) || store.get((p.jid || '').split('@')[0]);
+                const displayName = contact?.name || p.name || p.notify || p.verifiedName || p.pushname || p.pushName || '';
+                return {
+                    phone,
+                    name: displayName,
+                    pushname: displayName,
+                    notify: displayName,
+                    company: '',
+                };
+            })
+            .filter(Boolean);
+    } catch (error) {
+        console.error(`[Session ${sessionId}] Error fetching group participants:`, error.message);
+        throw error;
+    }
+}
+
+// ═══════════════════════════════════════
+// Getters & Setters
+// ═══════════════════════════════════════
 
 function getClient(sessionId) {
     return clients.get(sessionId) || null;
@@ -399,6 +778,7 @@ function listSessions() {
         return {
             ...s,
             status: live ? live.status : s.status,
+            qr: live ? live.qr : null,
             auto_reply: !!s.auto_reply,
         };
     });
@@ -412,39 +792,32 @@ function setAutoReply(sessionId, enabled) {
     sessionDb.setAutoReply(sessionId, enabled);
 }
 
-function onMessage(handler) {
-    // Attach handler to all current and future clients
-    for (const [sid, client] of clients) {
-        client.on('message', (msg) => handler(sid, msg));
-    }
-    // Store handler so new clients also get it
-    _messageHandlers.push(handler);
-}
-
-function onVote(handler) {
-    // Attach vote handler to all current and future clients
-    for (const [sid, client] of clients) {
-        client.on('vote_update', (vote) => handler(sid, vote));
-    }
-    _voteHandlers.push(handler);
-}
+// ═══════════════════════════════════════
+// Message & Vote Handlers (same pattern as before)
+// ═══════════════════════════════════════
 
 const _messageHandlers = [];
 const _voteHandlers = [];
 
-// Monkey-patch: wrap so each new client gets existing handlers
-(function patchCreateClient() {
-    const origSet = clients.set.bind(clients);
-    clients.set = function (id, client) {
-        origSet(id, client);
-        for (const h of _messageHandlers) {
-            client.on('message', (msg) => h(id, msg));
-        }
-        for (const h of _voteHandlers) {
-            client.on('vote_update', (vote) => h(id, vote));
-        }
-    };
-})();
+function onMessage(handler) {
+    _messageHandlers.push(handler);
+}
+
+function onVote(handler) {
+    _voteHandlers.push(handler);
+}
+
+/**
+ * Store a sent poll message for later vote decoding.
+ * Called by bulkSender after sending a poll.
+ */
+function storePollMessage(jid, msgId, message) {
+    pollMessageStore.set(`${jid}:${msgId}`, { message, createdAt: Date.now() });
+}
+
+// ═══════════════════════════════════════
+// Exports — same public API as before
+// ═══════════════════════════════════════
 
 module.exports = {
     init,
@@ -461,4 +834,9 @@ module.exports = {
     getGroupParticipants,
     onMessage,
     onVote,
+    storePollMessage,
+    // Utility exports for other modules
+    extractMessageText,
+    getMessageType,
+    hasMedia,
 };

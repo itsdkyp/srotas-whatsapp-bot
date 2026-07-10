@@ -23,7 +23,7 @@ import { toast } from 'sonner';
 import { useSocket } from '../providers/socket-provider';
 
 interface AppShellProps {
-    children: (activePage: string) => React.ReactNode;
+    children: (activePage: string, setActivePage: (page: string) => void) => React.ReactNode;
 }
 
 const NAV_ITEMS = [
@@ -292,7 +292,7 @@ export function AppShell({ children }: AppShellProps) {
                         transition={{ duration: 0.22, ease: [0.25, 0.46, 0.45, 0.94] }}
                         className="flex-1 overflow-y-auto"
                     >
-                        {children(activePage)}
+                        {children(activePage, setActivePage)}
                     </motion.div>
                 </AnimatePresence>
             </main>

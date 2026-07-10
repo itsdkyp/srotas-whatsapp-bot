@@ -34,6 +34,7 @@ export const getContacts = (group?: string, search?: string, page: number = 1, l
 export const getContactGroups = () => api.get('/contacts/groups').then((r) => r.data);
 export const addContact = (data: any) => api.post('/contacts', data).then((r) => r.data);
 export const deleteContact = (id: string) => api.delete(`/contacts/${id}`).then((r) => r.data);
+export const bulkDeleteContacts = (contactIds: string[]) => api.post('/contacts/bulk-delete', { contactIds }).then((r) => r.data);
 export const deleteContactGroup = (name: string) => api.delete(`/contacts/group/${name}`).then((r) => r.data);
 export const importContacts = (contacts: any[], group: string) => api.post('/contacts/import', { contacts, group }).then((r) => r.data);
 export const moveToGroup = (contactIds: string[], group: string, copy: boolean) =>
@@ -92,3 +93,13 @@ export const uploadMedia = (formData: FormData) => api.post('/media/upload', for
 export const uploadContactsCsv = (formData: FormData) => api.post('/contacts/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
 }).then(r => r.data);
+
+// AI Image Generation
+export const generateCampaignImage = (message: string) =>
+    api.post('/media/generate-image', { message }, { timeout: 120000 }).then(r => r.data);
+
+// Company Logo (composited into AI-generated images)
+export const uploadCompanyLogo = (formData: FormData) => api.post('/settings/logo', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+}).then(r => r.data);
+export const deleteCompanyLogo = () => api.delete('/settings/logo').then(r => r.data);

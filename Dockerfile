@@ -2,7 +2,7 @@
 # Stage 1: Build & Dependencies
 FROM node:20-alpine AS builder
 
-# Cache apk packages between builds (speeds up repeated builds significantly)
+# python3 + build-base needed for better-sqlite3 native compilation
 RUN --mount=type=cache,target=/var/cache/apk \
     apk add --no-cache python3 build-base
 
@@ -21,21 +21,10 @@ COPY . .
 RUN npm run build:ui
 
 # Stage 2: Lean runtime image
+# No Chromium needed! Baileys connects via WebSocket directly.
 FROM node:20-alpine
 
-# Cache apk packages between builds
-RUN --mount=type=cache,target=/var/cache/apk \
-    apk add --no-cache \
-    chromium \
-    nss \
-    freetype \
-    harfbuzz \
-    ca-certificates \
-    ttf-freefont
-
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
-    NODE_ENV=production
+ENV NODE_ENV=production
 
 WORKDIR /app
 
@@ -51,7 +40,7 @@ RUN mkdir -p data uploads .wwebjs_auth .wwebjs_cache
 
 EXPOSE 3000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD node -e "require('http').get('http://localhost:3000', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
-CMD ["node", "server.js"]
+CMD ["node", "--max-old-space-size=256", "server.js"]
