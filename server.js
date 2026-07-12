@@ -7,6 +7,23 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
+// When run as an Electron utility process (see main.js), a force-quit of the
+// main process can sever this process's stdout/stderr pipe abruptly. The
+// next console.log/error call would otherwise throw EPIPE as an uncaught
+// exception and crash this process with a raw stack trace — ignore it
+// instead and keep running (the next app launch's orphan recovery will
+// clean this process up if it's no longer needed).
+process.stdout.on('error', (err) => { if (err.code !== 'EPIPE') throw err; });
+process.stderr.on('error', (err) => { if (err.code !== 'EPIPE') throw err; });
+
+process.on('uncaughtException', (err) => {
+    try {
+        if (process.env.APP_USER_DATA_PATH) {
+            fs.appendFileSync(path.join(process.env.APP_USER_DATA_PATH, 'crash.log'), `[Server Uncaught] ${err.message}\n${err.stack}\n`);
+        }
+    } catch (e) {}
+});
+
 const sessionManager = require('./src/whatsapp/sessionManager');
 const messageHandler = require('./src/whatsapp/messageHandler');
 const bulkSender = require('./src/messaging/bulkSender');

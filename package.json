@@ -82,5 +82,8 @@
     "testMatch": [
       "**/tests/**/*.test.js"
     ]
+  },
+  "allowScripts": {
+    "electron@40.6.0": true
   }
 }

@@ -1,59 +1,6 @@
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, shell, utilityProcess } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { spawn, execSync } = require('child_process');
-
-// ════════════════════════════════════════════════
-// BACKGROUND SERVER MODE
-// If started with this flag, run the backend Express server instead of the UI.
-// This is necessary because ELECTRON_RUN_AS_NODE breaks ASAR support on Windows.
-// ════════════════════════════════════════════════
-if (process.argv.includes('--run-server')) {
-    // This process only runs the Express backend and never creates a window,
-    // so fully disable Chromium's GPU/compositor pipeline before Electron
-    // initializes it — otherwise it spins up a GPU process and renders at
-    // its default settings for no reason, burning CPU on Windows especially.
-    app.disableHardwareAcceleration();
-    app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256');
-
-    // If the main process is force-quit (as opposed to a graceful Cmd+Q),
-    // this process is briefly orphaned with its stdout/stderr pipe to the
-    // parent abruptly severed. The next console.log/error call (e.g. from a
-    // WhatsApp connection-state update) would otherwise throw EPIPE as an
-    // uncaught exception and crash this process with a raw stack trace —
-    // ignore it instead and keep running (the next app launch's orphan
-    // recovery will clean this process up if it's no longer needed).
-    process.stdout.on('error', (err) => { if (err.code !== 'EPIPE') throw err; });
-    process.stderr.on('error', (err) => { if (err.code !== 'EPIPE') throw err; });
-
-    // The top-level uncaughtException handler further below is never reached
-    // here because of the early `return` this branch ends with — register an
-    // equivalent one so unexpected errors in the headless server get logged
-    // instead of crashing with no record.
-    process.on('uncaughtException', (err) => {
-        try {
-            const crashLogPath = path.join(app.getPath('userData'), 'crash.log');
-            fs.appendFileSync(crashLogPath, `[Server Uncaught] ${err.message}\n${err.stack}\n`);
-        } catch (e) {}
-    });
-
-    if (!process.env.APP_USER_DATA_PATH) {
-        try {
-            process.env.APP_USER_DATA_PATH = app.getPath('userData');
-        } catch (e) {}
-    }
-    // This process is a headless copy of the packaged app spawned just to run
-    // the server — on macOS it still gets a Dock icon by default since it's
-    // launched from the same .app bundle, so hide it explicitly.
-    if (process.platform === 'darwin') {
-        try {
-            if (app.dock) app.dock.hide();
-        } catch (e) {}
-    }
-    // Run the server and stop Electron from initializing the UI
-    require('./server.js');
-    return;
-}
 
 let mainWindow;
 let serverProcess;
@@ -79,15 +26,16 @@ function cleanupOrphanedServer() {
     try { fs.unlinkSync(pidFilePath); } catch (e) {}
     if (!pid || Number.isNaN(pid)) return;
 
-    // Confirm this PID is still our own orphaned --run-server process before
+    // Confirm this PID is still our own orphaned backend process before
     // touching it — the OS can reuse a PID for an unrelated process between
     // runs, and killing based on liveness alone would be unsafe.
     try {
+        const { execSync } = require('child_process');
         const cmdline = process.platform === 'win32'
             ? execSync(`wmic process where ProcessId=${pid} get CommandLine`, { timeout: 5000 }).toString()
             : execSync(`ps -p ${pid} -o command=`, { timeout: 5000 }).toString();
 
-        if (cmdline.includes('--run-server')) {
+        if (cmdline.includes('server.js')) {
             if (process.platform === 'win32') {
                 execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore', timeout: 5000 });
             } else {
@@ -169,7 +117,7 @@ function createWindow() {
     // reopening via the Dock icon re-enters this function; reuse the
     // still-alive backend (and its live WhatsApp session) instead of
     // spawning a duplicate.
-    if (serverProcess && serverProcess.exitCode === null) {
+    if (serverProcess && serverProcess.pid !== undefined) {
         if (serverPort) {
             mainWindow.loadURL(`http://localhost:${serverPort}`);
         }
@@ -198,24 +146,28 @@ function startServer() {
     const userDataPath = app.getPath('userData');
     const crashLogPath = path.join(userDataPath, 'crash.log');
 
-    // Create a pristine child environment without the RUN_AS_NODE flag
     const childEnv = Object.assign({}, process.env, {
         APP_USER_DATA_PATH: userDataPath,
         PORT: '0',
         PACKAGED_ELECTRON: app.isPackaged ? 'true' : '',
-        NODE_OPTIONS: '--max-old-space-size=256',
     });
-    delete childEnv.ELECTRON_RUN_AS_NODE;
 
     try {
-        fs.appendFileSync(crashLogPath, `[Spawning] ExecPath: ${process.execPath}, AppPath: ${app.getAppPath()}\n`);
+        fs.appendFileSync(crashLogPath, `[Spawning] AppPath: ${app.getAppPath()}\n`);
     } catch (e) { }
 
-    // Use spawn to run the node server as a native Electron process
-    // This ensures full ASAR support on Windows!
-    serverProcess = spawn(process.execPath, [app.getAppPath(), '--run-server'], {
+    // Run the backend as a Node-only utility process — it gets Electron's
+    // ASAR-aware require() (unlike plain ELECTRON_RUN_AS_NODE, which breaks
+    // ASAR support on Windows) without booting a Chromium renderer or GPU
+    // process, unlike the previous approach of relaunching a whole second
+    // copy of this Electron app.
+    serverProcess = utilityProcess.fork(path.join(app.getAppPath(), 'server.js'), [], {
         env: childEnv,
-        stdio: ['pipe', 'pipe', 'pipe'] // Pipe rather than inherit to capture stdout
+        stdio: 'pipe',
+        serviceName: 'Srotas WhatsApp Bot Backend',
+        // NODE_OPTIONS isn't supported for utility processes in packaged apps —
+        // pass the V8 heap-size flag via execArgv instead, which is.
+        execArgv: ['--max-old-space-size=256'],
     });
 
     try { fs.writeFileSync(getServerPidFilePath(), String(serverProcess.pid)); } catch (e) {}
@@ -247,36 +199,16 @@ function startServer() {
         try { fs.appendFileSync(crashLogPath, `[Server Stderr] ${data.toString()}\n`); } catch (e) { }
     });
 
-    serverProcess.on('error', (err) => {
-        console.error('Failed to start server process:', err);
-        try { fs.appendFileSync(crashLogPath, `[Spawn Error] ${err.message}\n`); } catch (e) { }
-    });
-
-    serverProcess.on('exit', (code, signal) => {
+    serverProcess.on('exit', (code) => {
         serverPort = null;
         try { fs.unlinkSync(getServerPidFilePath()); } catch (e) { }
-        try { fs.appendFileSync(crashLogPath, `[Server Exit] Code: ${code}, Signal: ${signal}\n`); } catch (e) { }
+        try { fs.appendFileSync(crashLogPath, `[Server Exit] Code: ${code}\n`); } catch (e) { }
     });
 }
 
 function killServerProcess() {
     if (!serverProcess) return;
-
-    const pid = serverProcess.pid;
-    if (!pid) return;
-
-    try {
-        if (process.platform === 'win32') {
-            // On Windows, use taskkill with /T flag to kill the entire process tree
-            // This ensures any spawned child processes or workers are also cleanly terminated
-            execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore', timeout: 5000 });
-        } else {
-            serverProcess.kill('SIGTERM');
-        }
-    } catch (e) {
-        // Process may have already exited
-    }
-
+    try { serverProcess.kill(); } catch (e) {}
     serverProcess = null;
 }
 
@@ -286,4 +218,3 @@ process.on('uncaughtException', (err) => {
         fs.appendFileSync(path.join(app.getPath('userData'), 'crash.log'), `[Main Error] ${err.message}\n${err.stack}\n`);
     } catch (e) { }
 });
-
