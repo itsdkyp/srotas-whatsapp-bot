@@ -16,6 +16,27 @@ if (process.argv.includes('--run-server')) {
     app.disableHardwareAcceleration();
     app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256');
 
+    // If the main process is force-quit (as opposed to a graceful Cmd+Q),
+    // this process is briefly orphaned with its stdout/stderr pipe to the
+    // parent abruptly severed. The next console.log/error call (e.g. from a
+    // WhatsApp connection-state update) would otherwise throw EPIPE as an
+    // uncaught exception and crash this process with a raw stack trace —
+    // ignore it instead and keep running (the next app launch's orphan
+    // recovery will clean this process up if it's no longer needed).
+    process.stdout.on('error', (err) => { if (err.code !== 'EPIPE') throw err; });
+    process.stderr.on('error', (err) => { if (err.code !== 'EPIPE') throw err; });
+
+    // The top-level uncaughtException handler further below is never reached
+    // here because of the early `return` this branch ends with — register an
+    // equivalent one so unexpected errors in the headless server get logged
+    // instead of crashing with no record.
+    process.on('uncaughtException', (err) => {
+        try {
+            const crashLogPath = path.join(app.getPath('userData'), 'crash.log');
+            fs.appendFileSync(crashLogPath, `[Server Uncaught] ${err.message}\n${err.stack}\n`);
+        } catch (e) {}
+    });
+
     if (!process.env.APP_USER_DATA_PATH) {
         try {
             process.env.APP_USER_DATA_PATH = app.getPath('userData');
