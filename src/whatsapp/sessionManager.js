@@ -22,6 +22,7 @@ const clients = new Map();            // sessionId → Baileys socket
 const sessionStates = new Map();      // sessionId → { status, qr }
 const contactStores = new Map();      // sessionId → Map<phone, { phone, name }>
 const pollMessageStore = new Map();   // msgKey → { message, createdAt } (for vote decoding)
+const pendingReconnects = new Map();  // sessionId → auto-reconnect timeout handle
 
 // Prune pollMessageStore every 30 minutes (remove entries older than 7 days)
 setInterval(() => {
@@ -126,7 +127,45 @@ function hasMedia(msg) {
 // Create & manage Baileys sessions
 // ═══════════════════════════════════════
 
+// Cancel any pending auto-reconnect and fully detach the current socket for a
+// session before replacing it — without this, the old socket's still-attached
+// listeners (and any in-flight reconnect timer) keep firing after a manual
+// restart/relink, producing a second concurrent connection for the same session.
+async function teardownSocket(sessionId, { logout = false } = {}) {
+    const pending = pendingReconnects.get(sessionId);
+    if (pending) {
+        clearTimeout(pending);
+        pendingReconnects.delete(sessionId);
+    }
+
+    const sock = clients.get(sessionId);
+    if (!sock) return;
+
+    try { sock.ev.removeAllListeners(); } catch (e) { }
+
+    if (logout) {
+        try {
+            await sock.logout();
+        } catch (e) {
+            console.log(`[Session ${sessionId}] logout: ${e.message}`);
+            try { sock.end(); } catch (_) { }
+        }
+    } else {
+        try { sock.end(); } catch (e) {
+            console.log(`[Session ${sessionId}] end: ${e.message}`);
+        }
+    }
+
+    clients.delete(sessionId);
+}
+
 async function createClient(sessionId, name, retryCount = 0) {
+    const pending = pendingReconnects.get(sessionId);
+    if (pending) {
+        clearTimeout(pending);
+        pendingReconnects.delete(sessionId);
+    }
+
     const authDir = getAuthDir(sessionId);
     if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
 
@@ -240,7 +279,11 @@ async function createClient(sessionId, name, retryCount = 0) {
                     sessionStates.set(sessionId, { status: 'reconnecting', qr: null });
                     if (io) io.emit('session:status', { sessionId, status: 'reconnecting' });
                 }
-                setTimeout(() => createClient(sessionId, name, retryCount + 1), delay);
+                const timer = setTimeout(() => {
+                    pendingReconnects.delete(sessionId);
+                    createClient(sessionId, name, retryCount + 1);
+                }, delay);
+                pendingReconnects.set(sessionId, timer);
             }
         }
     });
@@ -408,16 +451,7 @@ async function addSession(name) {
 }
 
 async function removeSession(sessionId) {
-    const sock = clients.get(sessionId);
-    if (sock) {
-        try {
-            await sock.logout();
-        } catch (e) {
-            console.log(`[Session ${sessionId}] logout: ${e.message}`);
-            try { sock.end(); } catch (_) { }
-        }
-        clients.delete(sessionId);
-    }
+    await teardownSocket(sessionId, { logout: true });
     sessionStates.delete(sessionId);
     contactStores.delete(sessionId);
     try { waContactsDb.deleteBySession(sessionId); } catch (e) { }
@@ -434,14 +468,8 @@ async function restartSession(sessionId) {
     const dbSession = sessionDb.getAll().find(s => s.id === sessionId);
     if (!dbSession) throw new Error('Session not found');
 
-    // Close existing socket
-    const sock = clients.get(sessionId);
-    if (sock) {
-        try { sock.end(); } catch (e) {
-            console.log(`[Session ${sessionId}] end on restart: ${e.message}`);
-        }
-        clients.delete(sessionId);
-    }
+    // Close existing socket (and cancel any pending auto-reconnect for it)
+    await teardownSocket(sessionId);
     sessionStates.delete(sessionId);
 
     // Re-create — will reconnect using saved auth keys (no new QR needed)
@@ -452,14 +480,8 @@ async function relinkSession(sessionId) {
     const dbSession = sessionDb.getAll().find(s => s.id === sessionId);
     if (!dbSession) throw new Error('Session not found');
 
-    // Close existing socket
-    const sock = clients.get(sessionId);
-    if (sock) {
-        try { sock.end(); } catch (e) {
-            console.log(`[Session ${sessionId}] end on relink: ${e.message}`);
-        }
-        clients.delete(sessionId);
-    }
+    // Close existing socket (and cancel any pending auto-reconnect for it)
+    await teardownSocket(sessionId);
     sessionStates.delete(sessionId);
 
     // Clear stored auth data so a fresh QR is generated
@@ -478,14 +500,15 @@ async function relinkSession(sessionId) {
 // ═══════════════════════════════════════
 // WhatsApp Data Retrieval
 // ═══════════════════════════════════════
-async function getWhatsAppContacts(sessionId) {
-    const sock = clients.get(sessionId);
-    if (!sock) throw new Error('Session not found or not connected');
-
-    const store = contactStores.get(sessionId) || new Map();
+// ── Pre-build LID -> Phone map from groups and contacts ──
+// WhatsApp increasingly hides real numbers behind an opaque "@lid" id for
+// privacy (especially in larger groups). This cross-references every group
+// you're in plus your known contacts to resolve as many LIDs to real phone
+// numbers as possible; anything left unresolved is dropped by extractPhone
+// rather than imported as a garbage 15+ digit "phone number".
+async function buildLidToPhoneMap(sock) {
     const lidToPhoneMap = new Map();
 
-    // ── Pre-build LID -> Phone map from groups and contacts ──
     try {
         const groups = await sock.groupFetchAllParticipating().catch(() => ({}));
         if (groups && typeof groups === 'object') {
@@ -522,34 +545,45 @@ async function getWhatsAppContacts(sessionId) {
         }
     }
 
-    // ── Helper: extract clean phone from any Baileys JID or participant object ──
-    const extractPhone = (jid, obj) => {
-        if (!jid && !obj) return null;
-        let raw = '';
-        if (obj?.jid && String(obj.jid).includes('@s.whatsapp.net')) {
-            raw = String(obj.jid);
-        } else if (obj?.id && String(obj.id).includes('@s.whatsapp.net')) {
-            raw = String(obj.id);
-        } else if (jid && String(jid).includes('@s.whatsapp.net')) {
-            raw = String(jid);
-        } else {
-            raw = String(obj?.jid || obj?.id || jid || '');
-        }
-        if (raw.endsWith('@g.us') || raw.includes('broadcast')) return null;
-        if (obj?.phoneNumber) {
-            const num = String(obj.phoneNumber).replace(/[^0-9]/g, '');
-            if (num.length >= 7 && num.length <= 13) return num;
-        }
-        let clean = raw.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
-        if (raw.endsWith('@lid') || clean.length >= 14) {
-            const resolved = lidToPhoneMap.get(clean) || lidToPhoneMap.get(raw.split('@')[0]);
-            if (resolved && resolved.length <= 13) clean = resolved;
-            else return null; // Ignore unmapped 15-digit LIDs so they don't appear as fake contacts with numbers as names
-        }
-        if (clean.length < 7 || clean.length > 13) return null;
-        if (clean.length === 10 && /^[6-9]/.test(clean)) clean = '91' + clean;
-        return clean;
-    };
+    return lidToPhoneMap;
+}
+
+// ── Extract a clean phone from any Baileys JID or participant/contact object ──
+function extractPhoneFromJid(jid, obj, lidToPhoneMap) {
+    if (!jid && !obj) return null;
+    let raw = '';
+    if (obj?.jid && String(obj.jid).includes('@s.whatsapp.net')) {
+        raw = String(obj.jid);
+    } else if (obj?.id && String(obj.id).includes('@s.whatsapp.net')) {
+        raw = String(obj.id);
+    } else if (jid && String(jid).includes('@s.whatsapp.net')) {
+        raw = String(jid);
+    } else {
+        raw = String(obj?.jid || obj?.id || jid || '');
+    }
+    if (raw.endsWith('@g.us') || raw.includes('broadcast')) return null;
+    if (obj?.phoneNumber) {
+        const num = String(obj.phoneNumber).replace(/[^0-9]/g, '');
+        if (num.length >= 7 && num.length <= 13) return num;
+    }
+    let clean = raw.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+    if (raw.endsWith('@lid') || clean.length >= 14) {
+        const resolved = lidToPhoneMap.get(clean) || lidToPhoneMap.get(raw.split('@')[0]);
+        if (resolved && resolved.length <= 13) clean = resolved;
+        else return null; // Ignore unmapped LIDs so they don't appear as fake contacts with numbers as names
+    }
+    if (clean.length < 7 || clean.length > 13) return null;
+    if (clean.length === 10 && /^[6-9]/.test(clean)) clean = '91' + clean;
+    return clean;
+}
+
+async function getWhatsAppContacts(sessionId) {
+    const sock = clients.get(sessionId);
+    if (!sock) throw new Error('Session not found or not connected');
+
+    const store = contactStores.get(sessionId) || new Map();
+    const lidToPhoneMap = await buildLidToPhoneMap(sock);
+    const extractPhone = (jid, obj) => extractPhoneFromJid(jid, obj, lidToPhoneMap);
 
     // ── Helper: collect all contacts from every available Baileys & DB source ──
     const collectAllSources = async () => {
@@ -673,6 +707,8 @@ async function getWhatsAppContacts(sessionId) {
 
     // If result is STILL empty (brand new zero-contact account with 0 groups and 0 messages),
     // include the user's own connected WhatsApp phone number as a fallback so sync never crashes!
+    // (No further fallback beyond this — pulling unrelated CRM contacts here would falsely present
+    // them as freshly-synced WhatsApp contacts, which is misleading and was a real bug.)
     if (!result.length) {
         const selfId = sock.user?.id || '';
         const selfPhone = selfId.replace(/[:@].*$/, '');
@@ -683,18 +719,6 @@ async function getWhatsAppContacts(sessionId) {
                 company: 'Self',
             }];
             try { waContactsDb.upsertMany(sessionId, result); } catch (_) {}
-        } else {
-            // Check if any CRM contacts exist across the app to use as fallback
-            try {
-                const anyContacts = rawDb.prepare('SELECT phone, name FROM contacts LIMIT 20').all() || [];
-                if (anyContacts.length > 0) {
-                    result = anyContacts.map(c => ({
-                        phone: c.phone,
-                        name: c.name || '',
-                        company: '',
-                    }));
-                }
-            } catch (_) {}
         }
     }
 
@@ -736,17 +760,13 @@ async function getGroupParticipants(sessionId, groupId) {
         if (!metadata || !metadata.participants) throw new Error('Group not found');
 
         const store = contactStores.get(sessionId) || new Map();
+        const lidToPhoneMap = await buildLidToPhoneMap(sock);
+
         return metadata.participants
             .map(p => {
-                let targetId = p.jid && p.jid.includes('@s.whatsapp.net') ? p.jid : p.id && p.id.includes('@s.whatsapp.net') ? p.id : (p.jid || p.id || '');
-                if (targetId.endsWith('@g.us')) return null;
-                let phone = targetId.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
-                if (p.phoneNumber) {
-                    const num = String(p.phoneNumber).replace(/[^0-9]/g, '');
-                    if (num.length >= 5) phone = num;
-                }
-                if (!phone || phone.length < 5) return null;
-                const contact = store.get(phone) || store.get(p.id.split('@')[0]) || store.get((p.jid || '').split('@')[0]);
+                const phone = extractPhoneFromJid(p.jid || p.id, p, lidToPhoneMap);
+                if (!phone) return null; // Unresolved @lid participant — skip rather than import a fake number
+                const contact = store.get(phone);
                 const displayName = contact?.name || p.name || p.notify || p.verifiedName || p.pushname || p.pushName || '';
                 return {
                     phone,
@@ -821,6 +841,7 @@ function storePollMessage(jid, msgId, message) {
 
 module.exports = {
     init,
+    createClient,
     addSession,
     removeSession,
     restartSession,

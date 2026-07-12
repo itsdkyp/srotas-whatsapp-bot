@@ -1,5 +1,6 @@
 const { app, BrowserWindow, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const { spawn, execSync } = require('child_process');
 
 // ════════════════════════════════════════════════
@@ -8,9 +9,15 @@ const { spawn, execSync } = require('child_process');
 // This is necessary because ELECTRON_RUN_AS_NODE breaks ASAR support on Windows.
 // ════════════════════════════════════════════════
 if (process.argv.includes('--run-server')) {
+    // This process only runs the Express backend and never creates a window,
+    // so fully disable Chromium's GPU/compositor pipeline before Electron
+    // initializes it — otherwise it spins up a GPU process and renders at
+    // its default settings for no reason, burning CPU on Windows especially.
+    app.disableHardwareAcceleration();
+    app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256');
+
     if (!process.env.APP_USER_DATA_PATH) {
         try {
-            const { app } = require('electron');
             process.env.APP_USER_DATA_PATH = app.getPath('userData');
         } catch (e) {}
     }
@@ -19,7 +26,6 @@ if (process.argv.includes('--run-server')) {
     // launched from the same .app bundle, so hide it explicitly.
     if (process.platform === 'darwin') {
         try {
-            const { app } = require('electron');
             if (app.dock) app.dock.hide();
         } catch (e) {}
     }
@@ -30,6 +36,47 @@ if (process.argv.includes('--run-server')) {
 
 let mainWindow;
 let serverProcess;
+let serverPort = null;
+
+function getServerPidFilePath() {
+    return path.join(app.getPath('userData'), 'server.pid');
+}
+
+// Kill any headless server process left running from a previous session that
+// crashed or was force-killed before it could clean up after itself (normal
+// quit already handles this via killServerProcess() + 'before-quit').
+function cleanupOrphanedServer() {
+    const pidFilePath = getServerPidFilePath();
+    if (!fs.existsSync(pidFilePath)) return;
+
+    let pid;
+    try {
+        pid = parseInt(fs.readFileSync(pidFilePath, 'utf8').trim(), 10);
+    } catch (e) {
+        pid = NaN;
+    }
+    try { fs.unlinkSync(pidFilePath); } catch (e) {}
+    if (!pid || Number.isNaN(pid)) return;
+
+    // Confirm this PID is still our own orphaned --run-server process before
+    // touching it — the OS can reuse a PID for an unrelated process between
+    // runs, and killing based on liveness alone would be unsafe.
+    try {
+        const cmdline = process.platform === 'win32'
+            ? execSync(`wmic process where ProcessId=${pid} get CommandLine`, { timeout: 5000 }).toString()
+            : execSync(`ps -p ${pid} -o command=`, { timeout: 5000 }).toString();
+
+        if (cmdline.includes('--run-server')) {
+            if (process.platform === 'win32') {
+                execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore', timeout: 5000 });
+            } else {
+                process.kill(pid, 'SIGKILL');
+            }
+        }
+    } catch (e) {
+        // PID no longer exists (or already gone) — nothing to clean up
+    }
+}
 
 // Reduce Electron's own Chromium memory footprint
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256');
@@ -49,7 +96,10 @@ if (!gotTheLock) {
         }
     });
 
-    app.on('ready', createWindow);
+    app.on('ready', () => {
+        cleanupOrphanedServer();
+        createWindow();
+    });
 
     app.on('window-all-closed', function () {
         if (process.platform !== 'darwin') {
@@ -93,10 +143,23 @@ function createWindow() {
         }
     });
 
-    // Start the Express server
-    startServer();
+    // Start the Express server — but only if one isn't already running. On
+    // macOS, closing the window (red button) doesn't quit the app, so
+    // reopening via the Dock icon re-enters this function; reuse the
+    // still-alive backend (and its live WhatsApp session) instead of
+    // spawning a duplicate.
+    if (serverProcess && serverProcess.exitCode === null) {
+        if (serverPort) {
+            mainWindow.loadURL(`http://localhost:${serverPort}`);
+        }
+        // else: server is still starting up from a prior createWindow() call —
+        // its stdout listener will call loadURL() on the (now current) mainWindow
+        // once it detects the port.
+    } else {
+        startServer();
+    }
 
-    // The loadURL will be handled dynamically inside startServer() 
+    // The loadURL will be handled dynamically inside startServer()
     // when it receives the "Server running on port X" stdout message
 
     // Open external links in default browser
@@ -112,8 +175,7 @@ function createWindow() {
 
 function startServer() {
     const userDataPath = app.getPath('userData');
-    const fs = require('fs');
-    const crashLogPath = require('path').join(userDataPath, 'crash.log');
+    const crashLogPath = path.join(userDataPath, 'crash.log');
 
     // Create a pristine child environment without the RUN_AS_NODE flag
     const childEnv = Object.assign({}, process.env, {
@@ -135,6 +197,8 @@ function startServer() {
         stdio: ['pipe', 'pipe', 'pipe'] // Pipe rather than inherit to capture stdout
     });
 
+    try { fs.writeFileSync(getServerPidFilePath(), String(serverProcess.pid)); } catch (e) {}
+
     let portFound = false;
 
     serverProcess.stdout.on('data', (data) => {
@@ -148,6 +212,7 @@ function startServer() {
             if (match && match[1]) {
                 portFound = true;
                 const port = match[1];
+                serverPort = port;
                 console.log(`[Electron] Detected server running on dynamic port ${port}`);
                 if (mainWindow) {
                     mainWindow.loadURL(`http://localhost:${port}`);
@@ -167,6 +232,8 @@ function startServer() {
     });
 
     serverProcess.on('exit', (code, signal) => {
+        serverPort = null;
+        try { fs.unlinkSync(getServerPidFilePath()); } catch (e) { }
         try { fs.appendFileSync(crashLogPath, `[Server Exit] Code: ${code}, Signal: ${signal}\n`); } catch (e) { }
     });
 }
@@ -181,7 +248,7 @@ function killServerProcess() {
         if (process.platform === 'win32') {
             // On Windows, use taskkill with /T flag to kill the entire process tree
             // This ensures any spawned child processes or workers are also cleanly terminated
-            execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore' });
+            execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore', timeout: 5000 });
         } else {
             serverProcess.kill('SIGTERM');
         }
@@ -195,7 +262,6 @@ function killServerProcess() {
 // Global error handler for the main process to catch uncaught exceptions
 process.on('uncaughtException', (err) => {
     try {
-        const fs = require('fs');
         fs.appendFileSync(path.join(app.getPath('userData'), 'crash.log'), `[Main Error] ${err.message}\n${err.stack}\n`);
     } catch (e) { }
 });

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "srotas-whatsapp-bot": {
+      "command": "node",
+      "args": ["mcp-server/src/index.js"],
+      "env": {
+        "WHATSAPP_BOT_API_URL": "http://localhost:3000"
+      }
+    }
+  }
+}

@@ -8,7 +8,7 @@ import { Download } from 'lucide-react';
 
 export function Help() {
     const downloadSampleCsv = () => {
-        const csvContent = 'phone,name,company\n+919876543210,John Doe,Acme Corp\n+1234567890,Jane Smith,Tech Inc';
+        const csvContent = 'name,phone,company,city\nJohn Doe,+919876543210,Acme Corp,Bangalore\nJane Smith,+14155552671,Tech Inc,San Francisco\nRahul Sharma,9876543210,TechNova,Mumbai';
         const blob = new Blob([csvContent], { type: 'text/csv' });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -61,10 +61,10 @@ export function Help() {
                                 <div className="mt-4 p-4 bg-secondary/50 rounded-lg border border-border">
                                     <strong className="text-foreground">CSV Format Guide:</strong>
                                     <ul className="mt-2 pl-5 list-disc space-y-1">
-                                        <li><code className="text-primary bg-primary/10 px-1 py-0.5 rounded">phone</code> — Required. WhatsApp number with country code (e.g., +919876543210)</li>
+                                        <li><code className="text-primary bg-primary/10 px-1 py-0.5 rounded">phone</code> — Required. Include the country code (e.g., +919876543210). A bare 10-digit Indian mobile number (e.g., 9876543210) is automatically prefixed with 91 on import.</li>
                                         <li><code className="text-primary bg-primary/10 px-1 py-0.5 rounded">name</code> — Contact's full name</li>
                                         <li><code className="text-primary bg-primary/10 px-1 py-0.5 rounded">company</code> — Company or organization name</li>
-                                        <li><strong>Custom fields</strong> — Any extra column (email, city, product, etc.) becomes a custom field you can use in messages</li>
+                                        <li><strong>Custom fields</strong> — Any extra column (email, city, product, etc.) becomes a custom field. After uploading, you'll see a column-mapping step where you can confirm which column is phone/name/company and edit the {`{{placeholder}}`} name used for each custom field.</li>
                                     </ul>
                                 </div>
                             </AccordionContent>

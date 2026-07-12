@@ -390,6 +390,7 @@ app.post('/api/contacts/upload', upload.single('file'), (req, res) => {
         if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
         const result = importer.parseFile(req.file.path);
         result.uploadId = req.file.filename;
+        delete result.rows; // raw rows stay server-side; re-parsed by uploadId on confirm
         res.json(result);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -401,6 +402,35 @@ app.post('/api/contacts/import', (req, res) => {
         const { contacts, group } = req.body;
         if (!contacts || !contacts.length) return res.status(400).json({ error: 'No contacts provided' });
         // Ensure group exists
+        const g = group || 'default';
+        if (!groupsDb.getByName(g)) {
+            groupsDb.create(g, '');
+        }
+        contactsDb.bulkCreate(contacts, g);
+        res.json({ success: true, count: contacts.length });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Confirms a CSV/Excel import after the user has reviewed/edited the column
+// mapping (which column is phone/name/company, and what {{placeholder}} key
+// each remaining column should use) returned by /api/contacts/upload.
+app.post('/api/contacts/import-mapped', (req, res) => {
+    try {
+        const { uploadId, group, mapping } = req.body;
+        if (!uploadId || !mapping || !mapping.phone) {
+            return res.status(400).json({ error: 'uploadId and a phone column mapping are required' });
+        }
+        const filePath = path.join(UPLOAD_DIR, uploadId);
+        if (!fs.existsSync(filePath)) {
+            return res.status(400).json({ error: 'Upload has expired — please re-select the file and try again' });
+        }
+
+        const { rows } = importer.parseFile(filePath);
+        const contacts = importer.buildContacts(rows, mapping);
+        if (!contacts.length) return res.status(400).json({ error: 'No valid contacts found with the given mapping' });
+
         const g = group || 'default';
         if (!groupsDb.getByName(g)) {
             groupsDb.create(g, '');

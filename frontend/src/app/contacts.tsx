@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import {
     getContacts, getGroups, addGroup, deleteGroup, renameGroup,
-    addContact, deleteContact, bulkDeleteContacts, importContacts, uploadContactsCsv,
+    addContact, deleteContact, bulkDeleteContacts, importContacts, uploadContactsCsv, importContactsMapped,
     syncWhatsAppContacts, getWhatsAppGroups, grabGroupContacts, moveToGroup, getSessions
 } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -43,6 +43,10 @@ export function Contacts() {
     const [isImportOpen, setIsImportOpen] = useState(false);
     const [importFile, setImportFile] = useState<File | null>(null);
     const [importTargetGroup, setImportTargetGroup] = useState('default');
+    const [importUploading, setImportUploading] = useState(false);
+    const [importSubmitting, setImportSubmitting] = useState(false);
+    const [importPreview, setImportPreview] = useState<{ uploadId: string; columns: string[]; totalRows: number } | null>(null);
+    const [columnMappings, setColumnMappings] = useState<Array<{ column: string; role: 'phone' | 'name' | 'company' | 'custom' | 'skip'; key: string }>>([]);
 
     const [isSyncOpen, setIsSyncOpen] = useState(false);
     const [syncTab, setSyncTab] = useState<'personal' | 'groups'>('personal');
@@ -249,33 +253,88 @@ export function Contacts() {
         }
     };
 
+    const closeImportDialog = () => {
+        setIsImportOpen(false);
+        setImportFile(null);
+        setImportPreview(null);
+        setColumnMappings([]);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
     const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files.length > 0) {
-            setImportFile(e.target.files[0]);
-            setIsImportOpen(true);
+        if (!e.target.files || e.target.files.length === 0) return;
+        const file = e.target.files[0];
+        setImportFile(file);
+        setIsImportOpen(true);
+        setImportUploading(true);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const res = await uploadContactsCsv(formData);
+            if (!res.columns || !res.columns.length) {
+                toast.error('No columns detected in file');
+                closeImportDialog();
+                return;
+            }
+            setImportPreview({ uploadId: res.uploadId, columns: res.columns, totalRows: res.totalRows });
+            setColumnMappings(res.columns.map((col: string) => {
+                let role: 'phone' | 'name' | 'company' | 'custom' = 'custom';
+                if (col === res.detected?.phone) role = 'phone';
+                else if (col === res.detected?.name) role = 'name';
+                else if (col === res.detected?.company) role = 'company';
+                return { column: col, role, key: res.suggestedKeys?.[col] || col.toLowerCase() };
+            }));
+        } catch (error: any) {
+            toast.error(error.response?.data?.error || 'Failed to parse file');
+            closeImportDialog();
+        } finally {
+            setImportUploading(false);
         }
     };
 
-    const confirmImport = async () => {
-        if (!importFile) return;
-        const formData = new FormData();
-        formData.append('file', importFile);
-
-        try {
-            const res = await uploadContactsCsv(formData);
-            const contactsList = res.contacts || res.validContacts;
-            if (contactsList && contactsList.length > 0) {
-                await importContacts(contactsList, importTargetGroup);
-                toast.success(`Imported ${contactsList.length} contacts successfully`);
-            } else {
-                toast.error('No valid contacts found in CSV');
+    // Phone/Name/Company are single-select roles — picking one for a column
+    // demotes whichever column previously held it back to a custom field.
+    const handleRoleChange = (index: number, newRole: 'phone' | 'name' | 'company' | 'custom' | 'skip') => {
+        setColumnMappings(prev => prev.map((m, i) => {
+            if (i === index) return { ...m, role: newRole };
+            if ((newRole === 'phone' || newRole === 'name' || newRole === 'company') && m.role === newRole) {
+                return { ...m, role: 'custom' };
             }
-            setIsImportOpen(false);
-            setImportFile(null);
-            if (fileInputRef.current) fileInputRef.current.value = '';
+            return m;
+        }));
+    };
+
+    const handleKeyChange = (index: number, key: string) => {
+        setColumnMappings(prev => prev.map((m, i) => i === index ? { ...m, key } : m));
+    };
+
+    const confirmImport = async () => {
+        if (!importPreview) return;
+        const phoneMapping = columnMappings.find(m => m.role === 'phone');
+        if (!phoneMapping) return toast.error('Select which column contains the phone number');
+
+        const nameMapping = columnMappings.find(m => m.role === 'name');
+        const companyMapping = columnMappings.find(m => m.role === 'company');
+        const customFields: Record<string, string> = {};
+        for (const m of columnMappings) {
+            if (m.role === 'custom' && m.key.trim()) customFields[m.column] = m.key.trim();
+        }
+
+        setImportSubmitting(true);
+        try {
+            const res = await importContactsMapped(importPreview.uploadId, importTargetGroup, {
+                phone: phoneMapping.column,
+                name: nameMapping?.column,
+                company: companyMapping?.column,
+                customFields,
+            });
+            toast.success(`Imported ${res.count} contacts successfully`);
+            closeImportDialog();
             fetchData();
-        } catch (error) {
-            toast.error('Import failed');
+        } catch (error: any) {
+            toast.error(error.response?.data?.error || 'Failed to import contacts');
+        } finally {
+            setImportSubmitting(false);
         }
     };
 
@@ -617,33 +676,71 @@ export function Contacts() {
             </Dialog>
 
             {/* Import CSV Modal */}
-            <Dialog open={isImportOpen} onOpenChange={(open) => {
-                setIsImportOpen(open);
-                if (!open && fileInputRef.current) fileInputRef.current.value = '';
-            }}>
-                <DialogContent>
+            <Dialog open={isImportOpen} onOpenChange={(open) => { if (!open) closeImportDialog(); }}>
+                <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>Import Contacts</DialogTitle>
-                        <DialogDescription>Select a target group for the imported contacts.</DialogDescription>
+                        <DialogDescription>Review how each column should be imported.</DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-4 py-4">
+                    <div className="space-y-4 py-2">
                         <div className="p-4 border rounded-lg bg-secondary/20 flex items-center gap-3">
                             <div className="p-2 bg-primary/20 text-primary rounded-md"><FileTextIcon className="w-5 h-5" /></div>
                             <div className="overflow-hidden">
                                 <p className="font-medium truncate">{importFile?.name}</p>
-                                <p className="text-xs text-muted-foreground">{(importFile?.size || 0) / 1024 > 1024 ? `${((importFile?.size || 0) / 1048576).toFixed(2)} MB` : `${((importFile?.size || 0) / 1024).toFixed(1)} KB`}</p>
+                                <p className="text-xs text-muted-foreground">
+                                    {importUploading ? 'Parsing...' : importPreview ? `${importPreview.totalRows} rows detected` : ''}
+                                </p>
                             </div>
                         </div>
-                        <div className="space-y-2">
-                            <Label>Import to Group</Label>
-                            <Select value={importTargetGroup} onValueChange={(v) => setImportTargetGroup(v || '')}>
-                                <SelectTrigger><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                    {groups.map(g => <SelectItem key={g.id} value={g.name}>{g.name}</SelectItem>)}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <Button className="w-full" onClick={confirmImport}>Confirm Import</Button>
+
+                        {importPreview && (
+                            <>
+                                <div className="space-y-2">
+                                    <Label>Import to Group</Label>
+                                    <Select value={importTargetGroup} onValueChange={(v) => setImportTargetGroup(v || '')}>
+                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                            {groups.map(g => <SelectItem key={g.id} value={g.name}>{g.name}</SelectItem>)}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label>Column Mapping</Label>
+                                    <div className="border rounded-lg divide-y max-h-72 overflow-y-auto">
+                                        {columnMappings.map((m, i) => (
+                                            <div key={m.column} className="p-2.5 flex items-center gap-2">
+                                                <p className="text-sm font-medium truncate flex-1 min-w-0">{m.column}</p>
+                                                <Select value={m.role} onValueChange={(v) => handleRoleChange(i, v as any)}>
+                                                    <SelectTrigger className="w-[130px] h-8 text-xs shrink-0"><SelectValue /></SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="phone">Phone</SelectItem>
+                                                        <SelectItem value="name">Name</SelectItem>
+                                                        <SelectItem value="company">Company</SelectItem>
+                                                        <SelectItem value="custom">Custom Field</SelectItem>
+                                                        <SelectItem value="skip">Skip</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                                {m.role === 'custom' ? (
+                                                    <div className="flex items-center gap-1 w-[160px] shrink-0">
+                                                        <span className="text-xs text-muted-foreground">{'{{'}</span>
+                                                        <Input value={m.key} onChange={(e) => handleKeyChange(i, e.target.value)} className="h-8 text-xs px-1.5" />
+                                                        <span className="text-xs text-muted-foreground">{'}}'}</span>
+                                                    </div>
+                                                ) : <div className="w-[160px] shrink-0" />}
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                        Custom field placeholders can be used in message templates, e.g. {'{{'}<span className="font-mono">key</span>{'}}'}
+                                    </p>
+                                </div>
+                            </>
+                        )}
+
+                        <Button className="w-full" onClick={confirmImport} disabled={!importPreview || importSubmitting}>
+                            {importSubmitting ? 'Importing...' : 'Confirm Import'}
+                        </Button>
                     </div>
                 </DialogContent>
             </Dialog>

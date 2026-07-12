@@ -1,0 +1,20 @@
+{
+  "name": "srotas-whatsapp-bot-mcp",
+  "version": "1.0.0",
+  "description": "MCP server exposing the Srotas WhatsApp Bot REST API as tools for AI agents (Claude Desktop, Claude Code, Cursor, or any MCP-compatible client).",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "srotas-whatsapp-bot-mcp": "src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.11.0",
+    "axios": "^1.7.9",
+    "form-data": "^4.0.1",
+    "zod": "^3.24.1"
+  }
+}

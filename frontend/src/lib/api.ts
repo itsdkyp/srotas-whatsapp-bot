@@ -93,6 +93,8 @@ export const uploadMedia = (formData: FormData) => api.post('/media/upload', for
 export const uploadContactsCsv = (formData: FormData) => api.post('/contacts/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
 }).then(r => r.data);
+export const importContactsMapped = (uploadId: string, group: string, mapping: any) =>
+    api.post('/contacts/import-mapped', { uploadId, group, mapping }).then((r) => r.data);
 
 // AI Image Generation
 export const generateCampaignImage = (message: string) =>
