@@ -5,8 +5,15 @@
   "windows": [
     "main"
   ],
+  "remote": {
+    "urls": [
+      "http://localhost:*",
+      "http://127.0.0.1:*"
+    ]
+  },
   "permissions": [
     "core:default",
+    "allow-open-external-url",
     {
       "identifier": "shell:allow-execute",
       "allow": [

@@ -7,16 +7,7 @@
     "frontendDist": "dist-placeholder"
   },
   "app": {
-    "windows": [
-      {
-        "label": "main",
-        "title": "Srotas WhatsApp Bot",
-        "width": 1200,
-        "height": 800,
-        "resizable": true,
-        "fullscreen": false
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }
