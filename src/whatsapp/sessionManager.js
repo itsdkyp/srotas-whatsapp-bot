@@ -577,96 +577,101 @@ function extractPhoneFromJid(jid, obj, lidToPhoneMap) {
     return clean;
 }
 
+// Merge names/phones from every available Baileys & DB source into `store`,
+// in place. Shared by getWhatsAppContacts (personal sync) and
+// getGroupParticipants (group import) so both benefit from the same breadth
+// of name resolution — group import previously only checked the thin
+// contactStores map and missed names Baileys already had cached elsewhere.
+async function enrichContactStore(sock, sessionId, store, lidToPhoneMap) {
+    lidToPhoneMap = lidToPhoneMap || await buildLidToPhoneMap(sock);
+    const extractPhone = (jid, obj) => extractPhoneFromJid(jid, obj, lidToPhoneMap);
+
+    // Source 1 (Base): SQLite wa_contacts table for this session
+    try {
+        const dbContacts = waContactsDb.getBySession(sessionId) || [];
+        for (const c of dbContacts) {
+            if (!c.phone || c.phone.length < 5 || c.phone.length >= 14) continue;
+            const existing = store.get(c.phone);
+            if (!existing) {
+                store.set(c.phone, { phone: c.phone, name: c.name || '' });
+            } else if (!existing.name && c.name) {
+                existing.name = c.name;
+            }
+        }
+    } catch (_) { /* non-fatal */ }
+
+    // Source 2 (Base): SQLite messages table — anyone who ever sent/received a message via this bot
+    try {
+        const dbMessages = rawDb.prepare('SELECT DISTINCT contact_phone FROM messages WHERE session_id = ?').all(sessionId) || [];
+        for (const m of dbMessages) {
+            const phone = m.contact_phone;
+            if (!phone || phone.length < 5 || phone.length >= 14) continue;
+            if (!store.has(phone)) {
+                store.set(phone, { phone, name: '' });
+            }
+        }
+    } catch (_) { /* non-fatal */ }
+
+    // Source 3: sock.contacts — Baileys internal contacts map (keyed by JID)
+    if (sock.contacts && typeof sock.contacts === 'object') {
+        for (const [jid, c] of Object.entries(sock.contacts)) {
+            const phone = extractPhone(jid, c);
+            if (!phone) continue;
+            const existing = store.get(phone);
+            const name = c.name || c.notify || c.verifiedName || c.pushname || c.pushName || '';
+            if (!existing) {
+                store.set(phone, { phone, name });
+            } else if (!existing.name && name) {
+                existing.name = name;
+            }
+        }
+    }
+
+    // Source 4: sock.store?.contacts — if makeInMemoryStore was attached
+    if (sock.store?.contacts && typeof sock.store.contacts === 'object') {
+        for (const [jid, c] of Object.entries(sock.store.contacts)) {
+            const phone = extractPhone(jid, c);
+            if (!phone) continue;
+            const existing = store.get(phone);
+            const name = c.name || c.notify || c.verifiedName || c.pushname || c.pushName || '';
+            if (!existing) {
+                store.set(phone, { phone, name });
+            } else if (!existing.name && name) {
+                existing.name = name;
+            }
+        }
+    }
+
+    // Source 5: sock.chats — everyone you've ever messaged
+    const chatsObj = sock.chats || sock.store?.chats;
+    if (chatsObj && typeof chatsObj === 'object') {
+        const chatEntries = typeof chatsObj.all === 'function'
+            ? chatsObj.all()
+            : Array.isArray(chatsObj) ? chatsObj : Object.values(chatsObj);
+        for (const chat of chatEntries) {
+            const phone = extractPhone(chat.id || chat.jid, chat);
+            if (!phone) continue;
+            const existing = store.get(phone);
+            const name = chat.name || chat.notify || chat.verifiedName || chat.pushname || chat.pushName || '';
+            if (!existing) {
+                store.set(phone, { phone, name });
+            } else if (!existing.name && name) {
+                existing.name = name;
+            }
+        }
+    }
+
+    contactStores.set(sessionId, store);
+}
+
 async function getWhatsAppContacts(sessionId) {
     const sock = clients.get(sessionId);
     if (!sock) throw new Error('Session not found or not connected');
 
     const store = contactStores.get(sessionId) || new Map();
-    const lidToPhoneMap = await buildLidToPhoneMap(sock);
-    const extractPhone = (jid, obj) => extractPhoneFromJid(jid, obj, lidToPhoneMap);
-
-    // ── Helper: collect all contacts from every available Baileys & DB source ──
-    const collectAllSources = async () => {
-        // Source 1 (Base): SQLite wa_contacts table for this session
-        try {
-            const dbContacts = waContactsDb.getBySession(sessionId) || [];
-            for (const c of dbContacts) {
-                if (!c.phone || c.phone.length < 5 || c.phone.length >= 14) continue;
-                const existing = store.get(c.phone);
-                if (!existing) {
-                    store.set(c.phone, { phone: c.phone, name: c.name || '' });
-                } else if (!existing.name && c.name) {
-                    existing.name = c.name;
-                }
-            }
-        } catch (_) { /* non-fatal */ }
-
-        // Source 2 (Base): SQLite messages table — anyone who ever sent/received a message via this bot
-        try {
-            const dbMessages = rawDb.prepare('SELECT DISTINCT contact_phone FROM messages WHERE session_id = ?').all(sessionId) || [];
-            for (const m of dbMessages) {
-                const phone = m.contact_phone;
-                if (!phone || phone.length < 5 || phone.length >= 14) continue;
-                if (!store.has(phone)) {
-                    store.set(phone, { phone, name: '' });
-                }
-            }
-        } catch (_) { /* non-fatal */ }
-
-        // Source 3: sock.contacts — Baileys internal contacts map (keyed by JID)
-        if (sock.contacts && typeof sock.contacts === 'object') {
-            for (const [jid, c] of Object.entries(sock.contacts)) {
-                const phone = extractPhone(jid, c);
-                if (!phone) continue;
-                const existing = store.get(phone);
-                const name = c.name || c.notify || c.verifiedName || c.pushname || c.pushName || '';
-                if (!existing) {
-                    store.set(phone, { phone, name });
-                } else if (!existing.name && name) {
-                    existing.name = name;
-                }
-            }
-        }
-
-        // Source 4: sock.store?.contacts — if makeInMemoryStore was attached
-        if (sock.store?.contacts && typeof sock.store.contacts === 'object') {
-            for (const [jid, c] of Object.entries(sock.store.contacts)) {
-                const phone = extractPhone(jid, c);
-                if (!phone) continue;
-                const existing = store.get(phone);
-                const name = c.name || c.notify || c.verifiedName || c.pushname || c.pushName || '';
-                if (!existing) {
-                    store.set(phone, { phone, name });
-                } else if (!existing.name && name) {
-                    existing.name = name;
-                }
-            }
-        }
-
-        // Source 5: sock.chats — everyone you've ever messaged
-        const chatsObj = sock.chats || sock.store?.chats;
-        if (chatsObj && typeof chatsObj === 'object') {
-            const chatEntries = typeof chatsObj.all === 'function'
-                ? chatsObj.all()
-                : Array.isArray(chatsObj) ? chatsObj : Object.values(chatsObj);
-            for (const chat of chatEntries) {
-                const phone = extractPhone(chat.id || chat.jid, chat);
-                if (!phone) continue;
-                const existing = store.get(phone);
-                const name = chat.name || chat.notify || chat.verifiedName || chat.pushname || chat.pushName || '';
-                if (!existing) {
-                    store.set(phone, { phone, name });
-                } else if (!existing.name && name) {
-                    existing.name = name;
-                }
-            }
-        }
-
-        contactStores.set(sessionId, store);
-    };
 
     // First pass — collect from currently available Baileys & DB sources
-    await collectAllSources();
+    await enrichContactStore(sock, sessionId, store);
 
     // If still empty — trigger WhatsApp app-state resync to push contact list from cloud
     if (store.size === 0) {
@@ -688,7 +693,7 @@ async function getWhatsAppContacts(sessionId) {
         }
 
         // Second pass after resync
-        await collectAllSources();
+        await enrichContactStore(sock, sessionId, store);
     }
 
     // Persist all discovered contacts to SQLite for future restarts
@@ -761,6 +766,7 @@ async function getGroupParticipants(sessionId, groupId) {
 
         const store = contactStores.get(sessionId) || new Map();
         const lidToPhoneMap = await buildLidToPhoneMap(sock);
+        await enrichContactStore(sock, sessionId, store, lidToPhoneMap);
 
         return metadata.participants
             .map(p => {
