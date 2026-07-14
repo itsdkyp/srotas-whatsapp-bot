@@ -459,7 +459,9 @@ export function Contacts() {
                     <div className="flex items-center gap-3">
                         <Select value={selectedGroup} onValueChange={(v) => setSelectedGroup(v || 'all')}>
                             <SelectTrigger className="w-[200px]">
-                                <SelectValue placeholder="All Groups" />
+                                <SelectValue placeholder="All Groups">
+                                    {(value: string | null) => (!value || value === 'all') ? 'All Groups' : value}
+                                </SelectValue>
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="all">All Groups</SelectItem>
@@ -468,8 +470,8 @@ export function Contacts() {
                                 ))}
                             </SelectContent>
                         </Select>
-                        <Button size="icon" variant="ghost" onClick={() => setIsAddGroupOpen(true)} title="New Group">
-                            <FolderPlus className="w-4 h-4 text-primary" />
+                        <Button size="sm" variant="outline" onClick={() => setIsAddGroupOpen(true)} className="gap-1.5">
+                            <FolderPlus className="w-3.5 h-3.5 text-primary" /> New Group
                         </Button>
                         {selectedGroup !== 'all' && (
                             <>
