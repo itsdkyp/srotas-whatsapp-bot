@@ -23,6 +23,9 @@ const sessionStates = new Map();      // sessionId → { status, qr }
 const contactStores = new Map();      // sessionId → Map<phone, { phone, name }>
 const pollMessageStore = new Map();   // msgKey → { message, createdAt } (for vote decoding)
 const pendingReconnects = new Map();  // sessionId → auto-reconnect timeout handle
+const contactSyncInFlight = new Map();    // sessionId → Promise (dedupe overlapping personal-contact syncs)
+const groupSyncInFlight = new Map();      // "sessionId:groupId" → Promise (dedupe overlapping group imports)
+const lastFullResyncAttempt = new Map();  // sessionId → timestamp of last resyncAppState fallback
 
 // Prune pollMessageStore every 30 minutes (remove entries older than 7 days)
 setInterval(() => {
@@ -36,6 +39,12 @@ setInterval(() => {
 let cachedBaileysVersion = null;
 let baileysVersionFetchedAt = 0;
 const BAILEYS_VERSION_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+// Minimum gap between resyncAppState fallback attempts per session — without
+// this, an account with no nameable contacts (fresh number, or contacts that
+// have never sent a pushName) would pay the ~6s resync-and-wait cost on every
+// single sync call instead of just once in a while.
+const RESYNC_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 
 let io = null; // Socket.IO instance — set via init()
 
@@ -250,6 +259,9 @@ async function createClient(sessionId, name, retryCount = 0) {
             sessionDb.updatePhone(sessionId, phone);
             if (io) io.emit('session:ready', { sessionId, phone });
             console.log(`[Session ${name}] Connected — phone: ${phone}`);
+            // Reset so a future disconnect's backoff reflects consecutive recent
+            // failures, not this session's entire lifetime disconnect history.
+            retryCount = 0;
         }
 
         if (connection === 'close') {
@@ -272,10 +284,19 @@ async function createClient(sessionId, name, retryCount = 0) {
             } else {
                 // Continuous self-healing auto-reconnect for network drops, timeouts (408), stream restarts (515), or rate limits (440)
                 const isStreamRestart = statusCode === 515 || statusCode === 428;
-                // Cap backoff at 30 seconds during prolonged internet outages or rate limits
-                const delay = isStreamRestart ? 500 : Math.min(3000 * (retryCount + 1), 30000);
+                // Stream restarts usually recover on the very next attempt, so keep
+                // retrying fast at first — but if it keeps recurring (flaky network,
+                // firewall/AV interference), ramp up instead of hammering forever at
+                // a flat 500ms, which was pegging CPU on some real Windows machines.
+                const delay = isStreamRestart
+                    ? Math.min(500 * Math.pow(1.8, retryCount), 15000)
+                    : Math.min(3000 * (retryCount + 1), 30000); // Cap backoff at 30 seconds during prolonged internet outages or rate limits
                 console.log(`[Session ${name}] Disconnected (code ${statusCode}), reconnecting in ${delay}ms (retry #${retryCount + 1})...`);
-                if (!isStreamRestart) {
+                // Stay quiet in the UI for the first couple of stream-restart
+                // attempts (usually resolves instantly), but surface it once it's
+                // clearly not a one-off — otherwise a real reconnect loop is
+                // completely invisible from the dashboard.
+                if (!isStreamRestart || retryCount >= 2) {
                     sessionStates.set(sessionId, { status: 'reconnecting', qr: null });
                     if (io) io.emit('session:status', { sessionId, status: 'reconnecting' });
                 }
@@ -454,6 +475,11 @@ async function removeSession(sessionId) {
     await teardownSocket(sessionId, { logout: true });
     sessionStates.delete(sessionId);
     contactStores.delete(sessionId);
+    contactSyncInFlight.delete(sessionId);
+    lastFullResyncAttempt.delete(sessionId);
+    for (const key of groupSyncInFlight.keys()) {
+        if (key.startsWith(`${sessionId}:`)) groupSyncInFlight.delete(key);
+    }
     try { waContactsDb.deleteBySession(sessionId); } catch (e) { }
     sessionDb.delete(sessionId);
 
@@ -665,76 +691,119 @@ async function enrichContactStore(sock, sessionId, store, lidToPhoneMap) {
 }
 
 async function getWhatsAppContacts(sessionId) {
-    const sock = clients.get(sessionId);
-    if (!sock) throw new Error('Session not found or not connected');
+    // Dedupe overlapping calls (double-clicks, or personal sync + group import
+    // firing close together) — they'd otherwise race on the same shared store
+    // and duplicate expensive Baileys calls (resyncAppState) for no benefit.
+    const existingSync = contactSyncInFlight.get(sessionId);
+    if (existingSync) return existingSync;
 
-    const store = contactStores.get(sessionId) || new Map();
+    const syncPromise = (async () => {
+        const sock = clients.get(sessionId);
+        if (!sock) throw new Error('Session not found or not connected');
 
-    // First pass — collect from currently available Baileys & DB sources
-    await enrichContactStore(sock, sessionId, store);
+        const store = contactStores.get(sessionId) || new Map();
+        const hasAnyName = () => Array.from(store.values()).some(c => c.name);
 
-    // If still empty — trigger WhatsApp app-state resync to push contact list from cloud
-    if (store.size === 0) {
-        console.log(`[Sync Contacts] Store empty for session ${sessionId}, triggering app-state resync...`);
-        try {
-            await sock.resyncAppState([
-                'critical_block_low',
-                'critical_unblock_low',
-                'regular_high',
-                'regular_low',
-            ]).catch(() => {});
-        } catch (_) {}
-
-        // Wait up to 6 seconds for contacts.upsert events to fire
-        const deadline = Date.now() + 6000;
-        while (Date.now() < deadline) {
-            await new Promise(r => setTimeout(r, 600));
-            if (store.size > 0) break;
-        }
-
-        // Second pass after resync
+        // First pass — collect from currently available Baileys & DB sources
         await enrichContactStore(sock, sessionId, store);
-    }
 
-    // Persist all discovered contacts to SQLite for future restarts
-    const toSave = Array.from(store.values()).filter(c => c.phone && c.phone.length > 4);
-    if (toSave.length > 0) {
-        try { waContactsDb.upsertMany(sessionId, toSave); } catch (_) {}
-    }
+        // If no contact has a resolved name yet, trigger a WhatsApp app-state
+        // resync to push real contact data from the cloud. Gated on "no name
+        // resolved" rather than "store is empty" — a previous partial sync can
+        // leave phone-only stub entries persisted in SQLite, which would
+        // otherwise make the store look non-empty forever and permanently
+        // suppress this fallback. Cooldown-gated too, so an account that
+        // genuinely has no nameable contacts doesn't pay the ~6s resync cost
+        // on every single sync call.
+        const lastAttempt = lastFullResyncAttempt.get(sessionId) || 0;
+        if (!hasAnyName() && (Date.now() - lastAttempt) > RESYNC_COOLDOWN_MS) {
+            lastFullResyncAttempt.set(sessionId, Date.now());
+            console.log(`[Sync Contacts] No resolved names yet for session ${sessionId}, triggering app-state resync...`);
+            try {
+                await sock.resyncAppState([
+                    'critical_block_low',
+                    'critical_unblock_low',
+                    'regular_high',
+                    'regular_low',
+                ]).catch(() => {});
+            } catch (_) {}
 
-    let result = toSave.map(c => ({
-        phone: c.phone,
-        name: c.name || '',
-        pushname: c.name || '',
-        notify: c.name || '',
-        company: '',
-    }));
+            // Wait up to 6 seconds for contacts.upsert events to fire
+            const deadline = Date.now() + 6000;
+            while (Date.now() < deadline) {
+                await new Promise(r => setTimeout(r, 600));
+                if (hasAnyName()) break;
+            }
 
-    // If result is STILL empty (brand new zero-contact account with 0 groups and 0 messages),
-    // include the user's own connected WhatsApp phone number as a fallback so sync never crashes!
-    // (No further fallback beyond this — pulling unrelated CRM contacts here would falsely present
-    // them as freshly-synced WhatsApp contacts, which is misleading and was a real bug.)
-    if (!result.length) {
-        const selfId = sock.user?.id || '';
-        const selfPhone = selfId.replace(/[:@].*$/, '');
-        if (selfPhone && selfPhone.length > 4) {
-            result = [{
-                phone: selfPhone,
-                name: 'My Account (Self Test)',
-                company: 'Self',
-            }];
-            try { waContactsDb.upsertMany(sessionId, result); } catch (_) {}
+            // Second pass after resync
+            await enrichContactStore(sock, sessionId, store);
         }
-    }
 
-    if (!result.length) {
-        throw new Error(
-            'No contacts found. This usually means WhatsApp hasn\'t synced contacts yet.\n' +
-            'Try: (1) Make sure your phone has contacts saved, (2) Send or receive at least one message, then sync again.'
-        );
-    }
+        // Persist all discovered contacts to SQLite for future restarts — this
+        // still includes phone-only stubs (without a resolved name), since
+        // they're useful lookup seeds for later enrichment even though we
+        // don't hand them back to the caller below.
+        const toSave = Array.from(store.values()).filter(c => c.phone && c.phone.length > 4);
+        if (toSave.length > 0) {
+            try { waContactsDb.upsertMany(sessionId, toSave); } catch (_) {}
+        }
 
-    return result;
+        // Personal contact sync only returns contacts with an actual resolved
+        // name — i.e. people genuinely saved in your address book (or known by
+        // pushName), not every phone number ever seen in a message/chat.
+        // Group import (getGroupParticipants) intentionally keeps nameless
+        // numbers, since bulk-messaging a group doesn't require knowing names.
+        let result = toSave
+            .filter(c => c.name)
+            .map(c => ({
+                phone: c.phone,
+                name: c.name,
+                pushname: c.name,
+                notify: c.name,
+                company: '',
+            }));
+
+        // Self-fallback only applies to a truly blank account (no phone numbers
+        // found at all, named or not) — gated on toSave, not result, so an
+        // account with plenty of real (just nameless) numbers gets the more
+        // specific error below instead of a misleading fake contact.
+        if (!result.length && !toSave.length) {
+            const selfId = sock.user?.id || '';
+            const selfPhone = selfId.replace(/[:@].*$/, '');
+            if (selfPhone && selfPhone.length > 4) {
+                result = [{
+                    phone: selfPhone,
+                    name: 'My Account (Self Test)',
+                    company: 'Self',
+                }];
+                try { waContactsDb.upsertMany(sessionId, result); } catch (_) {}
+            }
+        }
+
+        if (!result.length && toSave.length > 0) {
+            throw new Error(
+                `Found ${toSave.length} WhatsApp contact(s), but none have a saved name yet — ` +
+                'only named contacts are synced here. Save their names in your phone\'s contacts, ' +
+                'or use "Grab Members" on a group to import numbers without names.'
+            );
+        }
+
+        if (!result.length) {
+            throw new Error(
+                'No contacts found. This usually means WhatsApp hasn\'t synced contacts yet.\n' +
+                'Try: (1) Make sure your phone has contacts saved, (2) Send or receive at least one message, then sync again.'
+            );
+        }
+
+        return result;
+    })();
+
+    contactSyncInFlight.set(sessionId, syncPromise);
+    try {
+        return await syncPromise;
+    } finally {
+        contactSyncInFlight.delete(sessionId);
+    }
 }
 
 
@@ -757,35 +826,83 @@ async function getWhatsAppGroups(sessionId) {
 }
 
 async function getGroupParticipants(sessionId, groupId) {
-    const sock = clients.get(sessionId);
-    if (!sock) throw new Error('Session not found or not connected');
+    // Dedupe overlapping calls for the *same* group (double-clicks) without
+    // blocking imports of a *different* group for the same session, which is
+    // why this is keyed by sessionId+groupId rather than sessionId alone.
+    const lockKey = `${sessionId}:${groupId}`;
+    const existingSync = groupSyncInFlight.get(lockKey);
+    if (existingSync) return existingSync;
 
+    const syncPromise = (async () => {
+        const sock = clients.get(sessionId);
+        if (!sock) throw new Error('Session not found or not connected');
+
+        try {
+            const metadata = await sock.groupMetadata(groupId);
+            if (!metadata || !metadata.participants) throw new Error('Group not found');
+
+            const store = contactStores.get(sessionId) || new Map();
+            const lidToPhoneMap = await buildLidToPhoneMap(sock);
+            await enrichContactStore(sock, sessionId, store, lidToPhoneMap);
+
+            const buildResult = () => metadata.participants
+                .map(p => {
+                    const phone = extractPhoneFromJid(p.jid || p.id, p, lidToPhoneMap);
+                    if (!phone) return null; // Unresolved @lid participant — skip rather than import a fake number
+                    const contact = store.get(phone);
+                    const displayName = contact?.name || p.name || p.notify || p.verifiedName || p.pushname || p.pushName || '';
+                    return {
+                        phone,
+                        name: displayName,
+                        pushname: displayName,
+                        notify: displayName,
+                        company: '',
+                    };
+                })
+                .filter(Boolean);
+
+            let result = buildResult();
+
+            // If nobody resolved a name, give this the same resync-and-wait
+            // fallback getWhatsAppContacts has — Baileys' contact/chat data may
+            // simply not be populated yet right after a (re)connect. Shares the
+            // same session-wide cooldown so grabbing several groups back-to-back
+            // doesn't hammer resyncAppState repeatedly.
+            const lastAttempt = lastFullResyncAttempt.get(sessionId) || 0;
+            if (result.length && !result.some(c => c.name) && (Date.now() - lastAttempt) > RESYNC_COOLDOWN_MS) {
+                lastFullResyncAttempt.set(sessionId, Date.now());
+                console.log(`[Grab Group] No resolved names yet for session ${sessionId}, triggering app-state resync...`);
+                try {
+                    await sock.resyncAppState([
+                        'critical_block_low',
+                        'critical_unblock_low',
+                        'regular_high',
+                        'regular_low',
+                    ]).catch(() => {});
+                } catch (_) {}
+
+                const deadline = Date.now() + 6000;
+                while (Date.now() < deadline) {
+                    await new Promise(r => setTimeout(r, 600));
+                    if (Array.from(store.values()).some(c => c.name)) break;
+                }
+
+                await enrichContactStore(sock, sessionId, store, lidToPhoneMap);
+                result = buildResult();
+            }
+
+            return result;
+        } catch (error) {
+            console.error(`[Session ${sessionId}] Error fetching group participants:`, error.message);
+            throw error;
+        }
+    })();
+
+    groupSyncInFlight.set(lockKey, syncPromise);
     try {
-        const metadata = await sock.groupMetadata(groupId);
-        if (!metadata || !metadata.participants) throw new Error('Group not found');
-
-        const store = contactStores.get(sessionId) || new Map();
-        const lidToPhoneMap = await buildLidToPhoneMap(sock);
-        await enrichContactStore(sock, sessionId, store, lidToPhoneMap);
-
-        return metadata.participants
-            .map(p => {
-                const phone = extractPhoneFromJid(p.jid || p.id, p, lidToPhoneMap);
-                if (!phone) return null; // Unresolved @lid participant — skip rather than import a fake number
-                const contact = store.get(phone);
-                const displayName = contact?.name || p.name || p.notify || p.verifiedName || p.pushname || p.pushName || '';
-                return {
-                    phone,
-                    name: displayName,
-                    pushname: displayName,
-                    notify: displayName,
-                    company: '',
-                };
-            })
-            .filter(Boolean);
-    } catch (error) {
-        console.error(`[Session ${sessionId}] Error fetching group participants:`, error.message);
-        throw error;
+        return await syncPromise;
+    } finally {
+        groupSyncInFlight.delete(lockKey);
     }
 }
 

@@ -55,6 +55,7 @@ export function Contacts() {
     const [waGroups, setWaGroups] = useState<any[]>([]);
     const [selectedWaGroup, setSelectedWaGroup] = useState('');
     const [loadingWaGroups, setLoadingWaGroups] = useState(false);
+    const [syncing, setSyncing] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -340,6 +341,8 @@ export function Contacts() {
 
     const handleSyncWhatsApp = async () => {
         if (!syncSession) return toast.error('Select a session');
+        if (syncing) return;
+        setSyncing(true);
         try {
             if (syncTab === 'personal') {
                 const waContacts = await syncWhatsAppContacts(syncSession);
@@ -399,6 +402,8 @@ export function Contacts() {
             fetchData();
         } catch (error: any) {
             toast.error(error.response?.data?.error || 'Sync failed');
+        } finally {
+            setSyncing(false);
         }
     };
 
@@ -807,8 +812,9 @@ export function Contacts() {
                             </div>
                         )}
 
-                        <Button className="w-full" onClick={handleSyncWhatsApp} disabled={!syncSession || syncSession === 'none'}>
-                            {syncTab === 'personal' ? '📲 Fetch Contacts' : '👥 Grab Members'}
+                        <Button className="w-full gap-2" onClick={handleSyncWhatsApp} disabled={syncing || !syncSession || syncSession === 'none'}>
+                            {syncing ? <RefreshCw className="w-4 h-4 animate-spin" /> : null}
+                            {syncing ? 'Syncing...' : (syncTab === 'personal' ? '📲 Fetch Contacts' : '👥 Grab Members')}
                         </Button>
                     </div>
                 </DialogContent>
