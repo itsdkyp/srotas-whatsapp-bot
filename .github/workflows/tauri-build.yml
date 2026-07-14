@@ -42,6 +42,9 @@ jobs:
       - name: Stage sidecar (pinned Node runtime + server-app resources)
         run: node scripts/stage-tauri-sidecar.mjs
 
+      - name: Smoke-test staged sidecar (catch ABI mismatches before packaging)
+        run: node scripts/smoke-test-sidecar.mjs
+
       - name: Build Tauri app
         working-directory: src-tauri
         run: npx tauri build --bundles app
@@ -82,6 +85,9 @@ jobs:
 
       - name: Stage sidecar (pinned Node runtime + server-app resources)
         run: node scripts/stage-tauri-sidecar.mjs
+
+      - name: Smoke-test staged sidecar (catch ABI mismatches before packaging)
+        run: node scripts/smoke-test-sidecar.mjs
 
       - name: Build Tauri app
         working-directory: src-tauri
