@@ -31,6 +31,12 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "externalBin": [
+      "binaries/node"
+    ],
+    "resources": {
+      "resources/server-app": "server-app"
+    },
     "android": {
       "debugApplicationIdSuffix": ".debug"
     }

@@ -1,27 +1,22 @@
-use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
-use std::process::{Command, Stdio};
-use std::thread;
-
 use tauri::{Manager, Url};
+use tauri_plugin_shell::process::CommandEvent;
+use tauri_plugin_shell::ShellExt;
 
-// Phase 1 spike only: spawn a plain `node server.js` using whatever Node is on
-// PATH, and discover its dynamic port the same way main.js does today — by
-// reading a `SERVER_PORT=<port>` line off its stdout. This deliberately
-// skips the real sidecar/externalBin mechanism, single-instance lock, and
-// orphan-PID recovery, which are Phase 2/3 concerns.
-fn repo_root() -> PathBuf {
-    // CARGO_MANIFEST_DIR is compile-time and always points at src-tauri/,
-    // regardless of the working directory `tauri dev` was invoked from.
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("src-tauri should have a parent directory")
-        .to_path_buf()
-}
-
+// Phase 2: real sidecar bundling. Replaces Phase 1's "whatever node is on
+// PATH" with Tauri's actual production mechanism — a Node runtime binary
+// bundled per-platform via `externalBin` (staged by
+// scripts/stage-tauri-sidecar.mjs), spawned via `app.shell().sidecar(...)`.
+// server.js + its node_modules (including a matching-ABI better-sqlite3)
+// ship alongside as plain `resources`, resolved at runtime via
+// `app.path().resource_dir()`.
+//
+// Still deliberately skipped here (Phase 3 concerns): single-instance lock,
+// PID-file orphan recovery/kill-on-quit, macOS dock reactivation,
+// external-link handling.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -31,44 +26,61 @@ pub fn run() {
                 )?;
             }
 
-            let root = repo_root();
-            let mut child = Command::new("node")
-                .arg("server.js")
-                .current_dir(&root)
-                .env("PORT", "0")
-                .stdout(Stdio::piped())
-                .stderr(Stdio::inherit())
-                .spawn()
-                .expect("failed to spawn `node server.js` — is Node installed and on PATH?");
+            let resource_dir = app
+                .path()
+                .resource_dir()
+                .expect("failed to resolve the app's resource directory");
+            let server_app_dir = resource_dir.join("server-app");
+            let server_js_path = server_app_dir.join("server.js");
+            let app_data_dir = app
+                .path()
+                .app_data_dir()
+                .expect("failed to resolve the app's data directory");
+            std::fs::create_dir_all(&app_data_dir)
+                .expect("failed to create the app's data directory");
 
-            let stdout = child.stdout.take().expect("child stdout was not piped");
+            let (mut rx, _child) = app
+                .shell()
+                .sidecar("node")
+                .expect("failed to create sidecar command for `node` — check externalBin config")
+                .args([server_js_path.to_string_lossy().to_string()])
+                .env("PORT", "0")
+                .env("APP_USER_DATA_PATH", app_data_dir.to_string_lossy().to_string())
+                .spawn()
+                .expect("failed to spawn the node sidecar");
+
             let app_handle = app.handle().clone();
 
-            thread::spawn(move || {
-                let reader = BufReader::new(stdout);
-                for line in reader.lines() {
-                    let Ok(line) = line else { continue };
-                    println!("[server.js] {line}");
-                    if let Some(port_str) = line.strip_prefix("SERVER_PORT=") {
-                        if let Ok(port) = port_str.trim().parse::<u16>() {
-                            let url = format!("http://localhost:{port}");
-                            if let Some(window) = app_handle.get_webview_window("main") {
-                                if let Ok(parsed) = Url::parse(&url) {
-                                    let _ = window.navigate(parsed);
+            tauri::async_runtime::spawn(async move {
+                while let Some(event) = rx.recv().await {
+                    match event {
+                        CommandEvent::Stdout(line_bytes) => {
+                            let line = String::from_utf8_lossy(&line_bytes);
+                            println!("[server.js] {line}");
+                            if let Some(port_str) = line.trim().strip_prefix("SERVER_PORT=") {
+                                if let Ok(port) = port_str.trim().parse::<u16>() {
+                                    let url = format!("http://localhost:{port}");
+                                    if let Some(window) = app_handle.get_webview_window("main") {
+                                        if let Ok(parsed) = Url::parse(&url) {
+                                            let _ = window.navigate(parsed);
+                                        }
+                                    }
                                 }
                             }
                         }
+                        CommandEvent::Stderr(line_bytes) => {
+                            eprintln!("[server.js:stderr] {}", String::from_utf8_lossy(&line_bytes));
+                        }
+                        _ => {}
                     }
                 }
             });
 
-            // Phase 1 spike: no PID tracking, no kill-on-quit yet (dropping
-            // `Child` does not terminate the OS process, so this node
-            // process outlives the app until manually killed). Phase 3
-            // replaces this with the real orphan-recovery + kill-on-quit
-            // logic ported from main.js's
+            // Phase 2 spike: still no PID tracking, no kill-on-quit yet — the
+            // sidecar child is dropped here without being tracked further.
+            // Phase 3 replaces this with the real orphan-recovery +
+            // kill-on-quit logic ported from main.js's
             // killServerProcess()/cleanupOrphanedServer().
-            let _ = &child;
 
             Ok(())
         })
