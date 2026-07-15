@@ -201,6 +201,16 @@ pub fn run() {
                 .expect("failed to create sidecar command for `node` — check externalBin config")
                 .args([
                     "--max-old-space-size=256".to_string(),
+                    // Works around a real bug hit on a Windows ARM64 VM:
+                    // Node's own module resolution (resolveMainPath ->
+                    // _findPath -> fs.realpathSync) walks the entry script's
+                    // path resolving symlinks, and choked with
+                    // `EISDIR: illegal operation on a directory, lstat 'C:'`
+                    // — very plausibly an artifact of running an x64 node.exe
+                    // under Windows' x64-on-ARM64 emulation layer rather than
+                    // anything in this app's own code. This flag skips that
+                    // realpath walk for the main module entirely.
+                    "--preserve-symlinks-main".to_string(),
                     server_js_path.to_string_lossy().to_string(),
                 ])
                 .env("PORT", "0")
