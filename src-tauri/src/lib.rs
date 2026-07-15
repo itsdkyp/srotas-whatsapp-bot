@@ -301,6 +301,12 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             match event {
+                // RunEvent::Reopen only exists on macOS (it wraps
+                // NSApplicationDelegate's applicationShouldHandleReopen, the
+                // Dock-icon-click callback) — Tauri itself gates the enum
+                // variant behind #[cfg(target_os = "macos")], so this arm
+                // must be too, or it fails to compile on Windows/Linux.
+                #[cfg(target_os = "macos")]
                 RunEvent::Reopen {
                     has_visible_windows,
                     ..
