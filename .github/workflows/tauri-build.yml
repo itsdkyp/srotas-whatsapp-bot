@@ -100,3 +100,58 @@ jobs:
           path: src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
           retention-days: 5
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Windows ARM64 Build — cross-compiled from the same x64 windows-latest
+  # runner (GitHub has no hosted native win-arm64 runner on this plan).
+  # Needed because a real x64 sidecar running under Windows' x64-on-ARM64
+  # emulation layer hit a Node.js realpath bug (EISDIR on 'C:') that
+  # reproduced on real ARM64 hardware, not just an emulation quirk to shrug
+  # off — Windows-on-ARM users need a genuinely native node.exe, not an
+  # emulated x64 one.
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-windows-arm64:
+    name: Build Windows ARM64
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.1'
+          cache: 'npm'
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build:ui
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-pc-windows-msvc
+
+      - name: Stage sidecar (pinned Node runtime + server-app resources)
+        run: node scripts/stage-tauri-sidecar.mjs aarch64-pc-windows-msvc
+
+      # No smoke-test step here: the staged node.exe is a genuine ARM64
+      # binary, and this runner's CPU is x64 — it cannot execute it at all
+      # (there's no ARM64-on-x64 emulation, only the reverse), so there is
+      # no way to run this check on GitHub's current hosted runners. The
+      # x64 leg's smoke test above is what actually exercises this exact
+      # class of bug.
+      - name: Build Tauri app (cross-compiled)
+        working-directory: src-tauri
+        run: npx tauri build --target aarch64-pc-windows-msvc --bundles nsis
+
+      - name: Upload Windows ARM64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-windows-arm64-installer
+          path: src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 5

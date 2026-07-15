@@ -29,6 +29,7 @@ const TARGETS = {
     'aarch64-apple-darwin': { nodePlatform: 'darwin-arm64', archiveExt: 'tar.gz', binName: 'node' },
     'x86_64-apple-darwin': { nodePlatform: 'darwin-x64', archiveExt: 'tar.gz', binName: 'node' },
     'x86_64-pc-windows-msvc': { nodePlatform: 'win-x64', archiveExt: 'zip', binName: 'node.exe' },
+    'aarch64-pc-windows-msvc': { nodePlatform: 'win-arm64', archiveExt: 'zip', binName: 'node.exe' },
     'x86_64-unknown-linux-gnu': { nodePlatform: 'linux-x64', archiveExt: 'tar.gz', binName: 'node' },
 };
 
