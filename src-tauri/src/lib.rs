@@ -213,12 +213,67 @@ pub fn run() {
 
             let app_handle = app.handle().clone();
 
+            // Captures the sidecar's combined stdout/stderr so the timeout
+            // watchdog below can show it if the backend never reports its
+            // port. Without this, a startup failure is invisible: server.js's
+            // own uncaughtException handler logs to crash.log but never
+            // calls process.exit(), so any early throw (wrong native-module
+            // ABI, a missing runtime DLL, antivirus interference — anything)
+            // leaves the sidecar process alive but stuck, and the splash
+            // screen would otherwise just say "Starting backend..." forever
+            // with zero indication anything is wrong.
+            let captured_output: std::sync::Arc<Mutex<Vec<String>>> =
+                std::sync::Arc::new(Mutex::new(Vec::new()));
+
+            {
+                let app_handle = app_handle.clone();
+                let captured_output = captured_output.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(20));
+                    // If "splash" is gone, the real dashboard window already
+                    // took over — nothing to do. If it's still there, the
+                    // backend never reported its port in time.
+                    if let Some(splash) = app_handle.get_webview_window("splash") {
+                        let log_tail = captured_output.lock().unwrap().join("\n");
+                        let log_json = serde_json::to_string(&log_tail)
+                            .unwrap_or_else(|_| "\"(failed to capture log)\"".to_string());
+                        let js = format!(
+                            r#"(function() {{
+                                document.body.innerHTML = '';
+                                document.body.style.cssText = 'background:#080c14;color:#e8edf5;font-family:sans-serif;margin:0;padding:24px;';
+                                var h = document.createElement('h3');
+                                h.style.color = '#f87171';
+                                h.textContent = 'Backend did not start within 20 seconds';
+                                var pre = document.createElement('pre');
+                                pre.style.cssText = 'background:#111;padding:12px;border-radius:8px;max-height:50vh;overflow:auto;white-space:pre-wrap;font-size:12px;';
+                                pre.textContent = {log_json} || '(no output captured)';
+                                var hint = document.createElement('p');
+                                hint.style.cssText = 'color:#94a3b8;font-size:13px;';
+                                hint.textContent = 'If this is Windows: check that the Visual C++ Redistributable is installed and that antivirus/Defender isn\'t blocking node.exe. The full log is also written to crash.log in the app data folder.';
+                                document.body.appendChild(h);
+                                document.body.appendChild(pre);
+                                document.body.appendChild(hint);
+                            }})();"#
+                        );
+                        let _ = splash.eval(&js);
+                    }
+                });
+            }
+
             tauri::async_runtime::spawn(async move {
                 while let Some(event) = rx.recv().await {
                     match event {
                         CommandEvent::Stdout(line_bytes) => {
-                            let line = String::from_utf8_lossy(&line_bytes);
+                            let line = String::from_utf8_lossy(&line_bytes).to_string();
                             println!("[server.js] {line}");
+                            {
+                                let mut buf = captured_output.lock().unwrap();
+                                buf.push(line.clone());
+                                let len = buf.len();
+                                if len > 200 {
+                                    buf.drain(0..len - 200);
+                                }
+                            }
                             if let Some(port_str) = line.trim().strip_prefix("SERVER_PORT=") {
                                 if let Ok(port) = port_str.trim().parse::<u16>() {
                                     let url = format!("http://localhost:{port}");
@@ -288,7 +343,14 @@ pub fn run() {
                             }
                         }
                         CommandEvent::Stderr(line_bytes) => {
-                            eprintln!("[server.js:stderr] {}", String::from_utf8_lossy(&line_bytes));
+                            let line = String::from_utf8_lossy(&line_bytes).to_string();
+                            eprintln!("[server.js:stderr] {line}");
+                            let mut buf = captured_output.lock().unwrap();
+                            buf.push(format!("[stderr] {line}"));
+                            let len = buf.len();
+                            if len > 200 {
+                                buf.drain(0..len - 200);
+                            }
                         }
                         _ => {}
                     }
