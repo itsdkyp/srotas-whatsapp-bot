@@ -25,12 +25,15 @@ const RESOURCES_DIR = path.join(TAURI_DIR, 'resources', 'server-app');
 const WORK_DIR = path.join(TAURI_DIR, '.sidecar-work');
 
 // Maps a Rust target triple to the matching Node.js dist archive naming.
+// `arch`/`platform` use npm's own vocabulary (npm_config_arch/_platform
+// values, i.e. process.arch/process.platform strings) — needed to force
+// prebuild-install's target selection when cross-compiling (see below).
 const TARGETS = {
-    'aarch64-apple-darwin': { nodePlatform: 'darwin-arm64', archiveExt: 'tar.gz', binName: 'node' },
-    'x86_64-apple-darwin': { nodePlatform: 'darwin-x64', archiveExt: 'tar.gz', binName: 'node' },
-    'x86_64-pc-windows-msvc': { nodePlatform: 'win-x64', archiveExt: 'zip', binName: 'node.exe' },
-    'aarch64-pc-windows-msvc': { nodePlatform: 'win-arm64', archiveExt: 'zip', binName: 'node.exe' },
-    'x86_64-unknown-linux-gnu': { nodePlatform: 'linux-x64', archiveExt: 'tar.gz', binName: 'node' },
+    'aarch64-apple-darwin': { nodePlatform: 'darwin-arm64', archiveExt: 'tar.gz', binName: 'node', arch: 'arm64', platform: 'darwin' },
+    'x86_64-apple-darwin': { nodePlatform: 'darwin-x64', archiveExt: 'tar.gz', binName: 'node', arch: 'x64', platform: 'darwin' },
+    'x86_64-pc-windows-msvc': { nodePlatform: 'win-x64', archiveExt: 'zip', binName: 'node.exe', arch: 'x64', platform: 'win32' },
+    'aarch64-pc-windows-msvc': { nodePlatform: 'win-arm64', archiveExt: 'zip', binName: 'node.exe', arch: 'arm64', platform: 'win32' },
+    'x86_64-unknown-linux-gnu': { nodePlatform: 'linux-x64', archiveExt: 'tar.gz', binName: 'node', arch: 'x64', platform: 'linux' },
 };
 
 function hostTargetTriple() {
@@ -130,38 +133,71 @@ async function stageForTarget(targetTriple) {
     cpSync(path.join(REPO_ROOT, 'package.json'), path.join(RESOURCES_DIR, 'package.json'));
     cpSync(path.join(REPO_ROOT, 'package-lock.json'), path.join(RESOURCES_DIR, 'package-lock.json'));
 
-    // 3. `npm ci --omit=dev` using the SAME downloaded Node/npm, so
-    //    better-sqlite3's prebuild-install fetches the addon matching this
-    //    exact runtime (not whatever Node happens to be on the host PATH).
-    const npmCliPath = isWindows
-        ? path.join(extractDir, 'node_modules', 'npm', 'bin', 'npm-cli.js')
-        : path.join(extractDir, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+    // 3. `npm ci --omit=dev` so better-sqlite3's prebuild-install fetches the
+    //    addon matching the TARGET runtime.
+    const isCrossCompile = target.arch !== process.arch || target.platform !== process.platform;
 
-    // Node 22.23.1 bundles npm 10.x, which predates npm 11's lifecycle-script
-    // approval gate (the one that blocked electron's postinstall earlier this
-    // session) — so no approval step is needed here, unlike with the
-    // system's newer npm.
-    //
-    // Critical: better-sqlite3's install script (`prebuild-install ||
-    // node-gyp rebuild`) resolves through a `#!/usr/bin/env node` shebang,
-    // which looks up `node` via PATH — NOT via this process's execPath.
-    // If the ambient PATH has a different Node ahead of the pinned one
-    // (e.g. a Homebrew install), prebuild-install runs under THAT Node and
-    // fetches/builds the addon for the wrong NODE_MODULE_VERSION, silently
-    // producing a sidecar that crashes with an ABI mismatch at runtime.
-    // Force the pinned Node's own bin dir to the front of PATH so every
-    // shebang'd child process (this npm's own script, prebuild-install,
-    // node-gyp) resolves back to the exact same binary being bundled.
-    console.log('Running npm ci --omit=dev with the pinned Node runtime...');
-    const pinnedBinDir = path.dirname(srcBinPath);
-    execFileSync(srcBinPath, [npmCliPath, 'ci', '--omit=dev'], {
-        cwd: RESOURCES_DIR,
-        stdio: 'inherit',
-        env: {
-            ...process.env,
-            PATH: `${pinnedBinDir}${path.delimiter}${process.env.PATH}`,
-        },
-    });
+    if (isCrossCompile) {
+        // Cross-compiling (e.g. staging an arm64 Windows sidecar from an x64
+        // CI runner): the downloaded target Node binary physically cannot be
+        // executed on this host — there's no ARM64-on-x64 emulation on
+        // Windows, only the reverse — so running `npm ci` through it (as the
+        // native-target path below does) fails immediately with ENOEXEC/
+        // "spawnSync ... UNKNOWN". Instead, run npm ci through the CURRENT
+        // process's own Node (whatever's running this script), but force
+        // prebuild-install's target selection via npm_config_arch/platform
+        // env vars so it still fetches the correct TARGET-arch prebuild for
+        // better-sqlite3 — prebuild-install downloads a prebuilt binary
+        // matching whatever arch/platform it's told, regardless of what's
+        // actually running it.
+        console.log(`Cross-compiling for ${targetTriple}: running npm ci with the host Node, forcing target arch=${target.arch} platform=${target.platform}...`);
+        execFileSync('npm', ['ci', '--omit=dev'], {
+            cwd: RESOURCES_DIR,
+            stdio: 'inherit',
+            shell: true,
+            env: {
+                ...process.env,
+                npm_config_arch: target.arch,
+                npm_config_platform: target.platform,
+                npm_config_target_arch: target.arch,
+                npm_config_target_platform: target.platform,
+            },
+        });
+    } else {
+        // Native target: use the SAME downloaded Node/npm so
+        // better-sqlite3's prebuild-install fetches the addon matching this
+        // exact runtime (not whatever Node happens to be on the host PATH).
+        const npmCliPath = isWindows
+            ? path.join(extractDir, 'node_modules', 'npm', 'bin', 'npm-cli.js')
+            : path.join(extractDir, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+
+        // Node 22.23.1 bundles npm 10.x, which predates npm 11's
+        // lifecycle-script approval gate (the one that blocked electron's
+        // postinstall earlier this session) — so no approval step is needed
+        // here, unlike with the system's newer npm.
+        //
+        // Critical: better-sqlite3's install script (`prebuild-install ||
+        // node-gyp rebuild`) resolves through a `#!/usr/bin/env node`
+        // shebang, which looks up `node` via PATH — NOT via this process's
+        // execPath. If the ambient PATH has a different Node ahead of the
+        // pinned one (e.g. a Homebrew install), prebuild-install runs under
+        // THAT Node and fetches/builds the addon for the wrong
+        // NODE_MODULE_VERSION, silently producing a sidecar that crashes
+        // with an ABI mismatch at runtime. Force the pinned Node's own bin
+        // dir to the front of PATH so every shebang'd child process (this
+        // npm's own script, prebuild-install, node-gyp) resolves back to
+        // the exact same binary being bundled.
+        console.log('Running npm ci --omit=dev with the pinned Node runtime...');
+        const pinnedBinDir = path.dirname(srcBinPath);
+        execFileSync(srcBinPath, [npmCliPath, 'ci', '--omit=dev'], {
+            cwd: RESOURCES_DIR,
+            stdio: 'inherit',
+            env: {
+                ...process.env,
+                PATH: `${pinnedBinDir}${path.delimiter}${process.env.PATH}`,
+            },
+        });
+    }
 
     console.log(`Staged resources: src-tauri/resources/server-app (for ${targetTriple})`);
 }

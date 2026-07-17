@@ -201,16 +201,22 @@ pub fn run() {
                 .expect("failed to create sidecar command for `node` — check externalBin config")
                 .args([
                     "--max-old-space-size=256".to_string(),
-                    // Works around a real bug hit on a Windows ARM64 VM:
-                    // Node's own module resolution (resolveMainPath ->
-                    // _findPath -> fs.realpathSync) walks the entry script's
-                    // path resolving symlinks, and choked with
-                    // `EISDIR: illegal operation on a directory, lstat 'C:'`
-                    // — very plausibly an artifact of running an x64 node.exe
-                    // under Windows' x64-on-ARM64 emulation layer rather than
-                    // anything in this app's own code. This flag skips that
-                    // realpath walk for the main module entirely.
+                    // Works around a real bug confirmed on real ARM64
+                    // Windows hardware (not just an x64-on-ARM64 VMware
+                    // emulation quirk): Node's own module resolution walks
+                    // paths resolving symlinks via fs.realpathSync, and
+                    // chokes with `EISDIR: illegal operation on a directory,
+                    // lstat 'C:'`. --preserve-symlinks-main alone only fixed
+                    // this for resolving the main entry script (server.js)
+                    // — the identical bug then resurfaced on the very next
+                    // require() call inside server.js, in the CJS loader's
+                    // general module resolution path rather than
+                    // resolveMainPath specifically. --preserve-symlinks
+                    // covers that broader path, skipping the same realpath
+                    // walk for every subsequent require(), not just the
+                    // entry point.
                     "--preserve-symlinks-main".to_string(),
+                    "--preserve-symlinks".to_string(),
                     server_js_path.to_string_lossy().to_string(),
                 ])
                 .env("PORT", "0")
