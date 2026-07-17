@@ -44,13 +44,15 @@ fn cleanup_orphaned_server(app_data_dir: &std::path::Path) {
     // touching it — the OS can reuse a PID for an unrelated process between
     // runs, and killing based on liveness alone would be unsafe.
     let cmdline_matches = if cfg!(target_os = "windows") {
-        std::process::Command::new("wmic")
+        // wmic.exe is deprecated and removed outright on Windows 11 24H2+;
+        // Get-CimInstance is the modern replacement and is present on every
+        // currently-supported Windows version (it's part of Windows
+        // PowerShell 5.1, built into the OS since Windows 7/2008 R2).
+        std::process::Command::new("powershell")
             .args([
-                "process",
-                "where",
-                &format!("ProcessId={pid}"),
-                "get",
-                "CommandLine",
+                "-NoProfile",
+                "-Command",
+                &format!("(Get-CimInstance Win32_Process -Filter \"ProcessId={pid}\").CommandLine"),
             ])
             .output()
             .map(|o| String::from_utf8_lossy(&o.stdout).contains("server.js"))
@@ -176,6 +178,22 @@ pub fn run() {
             std::fs::create_dir_all(&app_data_dir)
                 .expect("failed to create the app's data directory");
 
+            // Created early and seeded with the resolved paths so a future
+            // "stuck at Starting backend" report's watchdog diagnostic (see
+            // below) immediately shows whether these paths were resolved
+            // sanely, rather than needing another back-and-forth to rule out
+            // a bug in our own path computation vs. Node internals.
+            let captured_output: std::sync::Arc<Mutex<Vec<String>>> =
+                std::sync::Arc::new(Mutex::new(Vec::new()));
+            for line in [
+                format!("[lib.rs] resource_dir={}", resource_dir.display()),
+                format!("[lib.rs] server_js_path={}", server_js_path.display()),
+                format!("[lib.rs] app_data_dir={}", app_data_dir.display()),
+            ] {
+                println!("{line}");
+                captured_output.lock().unwrap().push(line);
+            }
+
             cleanup_orphaned_server(&app_data_dir);
 
             // Lightweight placeholder window shown immediately while the
@@ -229,18 +247,17 @@ pub fn run() {
 
             let app_handle = app.handle().clone();
 
-            // Captures the sidecar's combined stdout/stderr so the timeout
-            // watchdog below can show it if the backend never reports its
-            // port. Without this, a startup failure is invisible: server.js's
-            // own uncaughtException handler logs to crash.log but never
-            // calls process.exit(), so any early throw (wrong native-module
-            // ABI, a missing runtime DLL, antivirus interference — anything)
-            // leaves the sidecar process alive but stuck, and the splash
-            // screen would otherwise just say "Starting backend..." forever
-            // with zero indication anything is wrong.
-            let captured_output: std::sync::Arc<Mutex<Vec<String>>> =
-                std::sync::Arc::new(Mutex::new(Vec::new()));
-
+            // captured_output (declared earlier, seeded with resolved paths)
+            // also captures the sidecar's combined stdout/stderr from here
+            // on, so the timeout watchdog below can show it if the backend
+            // never reports its port. Without this, a startup failure is
+            // invisible: server.js's own uncaughtException handler logs to
+            // crash.log but never calls process.exit(), so any early throw
+            // (wrong native-module ABI, a missing runtime DLL, antivirus
+            // interference — anything) leaves the sidecar process alive but
+            // stuck, and the splash screen would otherwise just say
+            // "Starting backend..." forever with zero indication anything is
+            // wrong.
             {
                 let app_handle = app_handle.clone();
                 let captured_output = captured_output.clone();
