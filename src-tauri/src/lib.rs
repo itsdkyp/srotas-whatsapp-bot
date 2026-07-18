@@ -202,7 +202,7 @@ pub fn run() {
             // replaced below anyway. Labeled "splash" (not "main") so the
             // on_window_event hide-not-quit handler above doesn't intercept
             // its close() call below once the real dashboard is ready.
-            WebviewWindowBuilder::new(app, "splash", WebviewUrl::App("index.html".into()))
+            let splash = WebviewWindowBuilder::new(app, "splash", WebviewUrl::App("index.html".into()))
                 .title("Srotas WhatsApp Bot")
                 .inner_size(1200.0, 800.0)
                 .resizable(true)
@@ -213,34 +213,69 @@ pub fn run() {
             // Same V8 heap cap as the Electron build's utilityProcess.fork()
             // execArgv, applied here as a plain CLI flag since the sidecar is
             // a real separate process rather than an in-process fork.
-            let (mut rx, child) = app
+            let sidecar_result = app
                 .shell()
                 .sidecar("node")
-                .expect("failed to create sidecar command for `node` — check externalBin config")
-                .args([
-                    "--max-old-space-size=256".to_string(),
-                    // Works around a real bug confirmed on real ARM64
-                    // Windows hardware (not just an x64-on-ARM64 VMware
-                    // emulation quirk): Node's own module resolution walks
-                    // paths resolving symlinks via fs.realpathSync, and
-                    // chokes with `EISDIR: illegal operation on a directory,
-                    // lstat 'C:'`. --preserve-symlinks-main alone only fixed
-                    // this for resolving the main entry script (server.js)
-                    // — the identical bug then resurfaced on the very next
-                    // require() call inside server.js, in the CJS loader's
-                    // general module resolution path rather than
-                    // resolveMainPath specifically. --preserve-symlinks
-                    // covers that broader path, skipping the same realpath
-                    // walk for every subsequent require(), not just the
-                    // entry point.
-                    "--preserve-symlinks-main".to_string(),
-                    "--preserve-symlinks".to_string(),
-                    server_js_path.to_string_lossy().to_string(),
-                ])
-                .env("PORT", "0")
-                .env("APP_USER_DATA_PATH", app_data_dir.to_string_lossy().to_string())
-                .spawn()
-                .expect("failed to spawn the node sidecar");
+                .map_err(|e| e.to_string())
+                .and_then(|cmd| {
+                    cmd.args([
+                        "--max-old-space-size=256".to_string(),
+                        // Works around a real bug confirmed on real ARM64
+                        // Windows hardware (not just an x64-on-ARM64 VMware
+                        // emulation quirk): Node's own module resolution
+                        // walks paths resolving symlinks via
+                        // fs.realpathSync, and chokes with `EISDIR: illegal
+                        // operation on a directory, lstat 'C:'`.
+                        // --preserve-symlinks-main alone only fixed this for
+                        // resolving the main entry script (server.js) — the
+                        // identical bug then resurfaced on the very next
+                        // require() call inside server.js, in the CJS
+                        // loader's general module resolution path rather
+                        // than resolveMainPath specifically.
+                        // --preserve-symlinks covers that broader path,
+                        // skipping the same realpath walk for every
+                        // subsequent require(), not just the entry point.
+                        "--preserve-symlinks-main".to_string(),
+                        "--preserve-symlinks".to_string(),
+                        server_js_path.to_string_lossy().to_string(),
+                    ])
+                    .env("PORT", "0")
+                    .env("APP_USER_DATA_PATH", app_data_dir.to_string_lossy().to_string())
+                    .spawn()
+                    .map_err(|e| e.to_string())
+                });
+
+            // A spawn failure here (e.g. antivirus quarantined the unsigned
+            // node.exe sometime after install, or externalBin resolution
+            // itself is broken) used to panic via .expect(), crashing the
+            // whole app with zero visible feedback — bypassing the 20s
+            // watchdog below entirely, since that panic happens
+            // synchronously, before the watchdog thread ever gets spawned.
+            // Show the error in the splash window instead and keep the app
+            // alive, so there's always *something* on screen to report back.
+            let (mut rx, child) = match sidecar_result {
+                Ok(pair) => pair,
+                Err(e) => {
+                    let msg = format!("Failed to start the backend process: {e}");
+                    let msg_json = serde_json::to_string(&msg).unwrap_or_else(|_| "\"(unknown error)\"".to_string());
+                    let js = format!(
+                        r#"(function() {{
+                            document.body.innerHTML = '';
+                            document.body.style.cssText = 'background:#080c14;color:#e8edf5;font-family:sans-serif;margin:0;padding:24px;';
+                            var h = document.createElement('h3');
+                            h.style.color = '#f87171';
+                            h.textContent = 'Failed to start the backend';
+                            var pre = document.createElement('pre');
+                            pre.style.cssText = 'background:#111;padding:12px;border-radius:8px;white-space:pre-wrap;font-size:12px;';
+                            pre.textContent = {msg_json};
+                            document.body.appendChild(h);
+                            document.body.appendChild(pre);
+                        }})();"#
+                    );
+                    let _ = splash.eval(&js);
+                    return Ok(());
+                }
+            };
 
             let _ = std::fs::write(server_pid_file_path(&app_data_dir), child.pid().to_string());
             *app.state::<ServerState>().child.lock().unwrap() = Some(child);
@@ -262,7 +297,7 @@ pub fn run() {
                 let app_handle = app_handle.clone();
                 let captured_output = captured_output.clone();
                 std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_secs(20));
+                    std::thread::sleep(std::time::Duration::from_secs(30));
                     // If "splash" is gone, the real dashboard window already
                     // took over — nothing to do. If it's still there, the
                     // backend never reported its port in time.
@@ -276,7 +311,7 @@ pub fn run() {
                                 document.body.style.cssText = 'background:#080c14;color:#e8edf5;font-family:sans-serif;margin:0;padding:24px;';
                                 var h = document.createElement('h3');
                                 h.style.color = '#f87171';
-                                h.textContent = 'Backend did not start within 20 seconds';
+                                h.textContent = 'Backend did not start within 30 seconds';
                                 var pre = document.createElement('pre');
                                 pre.style.cssText = 'background:#111;padding:12px;border-radius:8px;max-height:50vh;overflow:auto;white-space:pre-wrap;font-size:12px;';
                                 pre.textContent = {log_json} || '(no output captured)';
