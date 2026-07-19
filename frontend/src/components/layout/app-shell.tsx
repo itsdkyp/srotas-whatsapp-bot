@@ -46,6 +46,7 @@ export function AppShell({ children }: AppShellProps) {
     const [isSendingCampaign, setIsSendingCampaign] = useState(false);
     const [isAutoReplyOn, setIsAutoReplyOn] = useState(false);
     const [appVersion, setAppVersion] = useState<string>('...');
+    const [runtimeShell, setRuntimeShell] = useState<'tauri' | 'electron' | null>(null);
 
     const { socket } = useSocket();
 
@@ -95,6 +96,21 @@ export function AppShell({ children }: AppShellProps) {
         getVersion().then((data) => {
             if (data && data.version) setAppVersion(data.version);
         }).catch(console.error);
+
+        // Detect which desktop shell is hosting this page. No backend/env
+        // wiring needed: Tauri always injects `__TAURI_INTERNALS__` into the
+        // page regardless of the withGlobalTauri setting, and Electron's
+        // default Chromium user agent includes "Electron/" unless the app
+        // explicitly overrides it (this app doesn't, and has no preload
+        // script to expose anything else distinguishing). Neither is present
+        // in a plain browser tab.
+        if (typeof window !== 'undefined') {
+            if ((window as any).__TAURI_INTERNALS__) {
+                setRuntimeShell('tauri');
+            } else if (navigator.userAgent.includes('Electron')) {
+                setRuntimeShell('electron');
+            }
+        }
 
         const saved = localStorage.getItem('theme');
         const dark = saved !== 'light';
@@ -275,11 +291,25 @@ export function AppShell({ children }: AppShellProps) {
                         </h2>
                         <p className="text-xs text-muted-foreground">Srotas.bot · WhatsApp Automation Platform</p>
                     </div>
-                    <button
-                        onClick={() => setActivePage('updates')}
-                        className="text-xs px-3 py-1 rounded-full badge-blue font-medium cursor-pointer hover:opacity-80 transition-opacity"
-                        title="Check for updates"
-                    >v{appVersion}</button>
+                    <div className="flex items-center gap-2">
+                        {runtimeShell && (
+                            <span
+                                className="text-xs px-3 py-1 rounded-full font-medium"
+                                style={{
+                                    background: runtimeShell === 'tauri' ? 'rgba(168,85,247,0.15)' : 'rgba(59,130,246,0.15)',
+                                    color: runtimeShell === 'tauri' ? '#a855f7' : '#3b82f6',
+                                }}
+                                title={runtimeShell === 'tauri' ? 'Running on the Tauri (native WebView) shell' : 'Running on the Electron (Chromium) shell'}
+                            >
+                                {runtimeShell === 'tauri' ? 'Tauri' : 'Electron'}
+                            </span>
+                        )}
+                        <button
+                            onClick={() => setActivePage('updates')}
+                            className="text-xs px-3 py-1 rounded-full badge-blue font-medium cursor-pointer hover:opacity-80 transition-opacity"
+                            title="Check for updates"
+                        >v{appVersion}</button>
+                    </div>
                 </div>
 
                 {/* Page with transition */}
