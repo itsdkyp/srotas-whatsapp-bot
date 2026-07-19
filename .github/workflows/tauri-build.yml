@@ -12,9 +12,13 @@ on:
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────────
-  # macOS Build — produces a .app bundle (no .dmg: electron-builder's
-  # bundle_dmg.sh issue doesn't apply here, but Tauri's own dmg bundling step
-  # was flaky in local testing, so validation is scoped to the .app itself)
+  # macOS Build — produces both the raw .app (for quick validation/testing)
+  # and a proper drag-to-Applications .dmg installer. Tauri's dmg bundling
+  # (bundle_dmg.sh) was flaky earlier in local testing; re-verified working
+  # (mounted correctly, real Applications-folder symlink, correct icon) and
+  # re-enabled — without it, testers were extracting and running the raw
+  # .app directly with no install step at all, and no visible app icon in
+  # some cases.
   # ─────────────────────────────────────────────────────────────────────────────
   build-mac:
     name: Build macOS
@@ -47,13 +51,21 @@ jobs:
 
       - name: Build Tauri app
         working-directory: src-tauri
-        run: npx tauri build --bundles app
+        run: npx tauri build --bundles app dmg
 
-      - name: Upload macOS artifact
+      - name: Upload macOS .app artifact
         uses: actions/upload-artifact@v4
         with:
           name: tauri-mac-app
           path: src-tauri/target/release/bundle/macos/*.app
+          if-no-files-found: error
+          retention-days: 5
+
+      - name: Upload macOS .dmg installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-mac-installer
+          path: src-tauri/target/release/bundle/dmg/*.dmg
           if-no-files-found: error
           retention-days: 5
 
