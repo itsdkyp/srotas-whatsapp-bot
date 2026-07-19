@@ -25,13 +25,6 @@ build/
 # npm pack output
 *.tgz
 
-# Electron builder output
-dist/
-!dist/*.exe
-!dist/*.dmg
-!dist/*.blockmap
-!dist/*.pkg
-
 # Logs
 *.log
 npm-debug.log*

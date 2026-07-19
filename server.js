@@ -55,7 +55,14 @@ const pkg = require('./package.json');
 
 // Middleware
 app.use(express.json({ limit: '10mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+// no-store: this is a single-user localhost server bundled fresh with every
+// build. The desktop shell's WebView2/WKWebView profile persists across app
+// upgrades (same APP_USER_DATA_PATH), and its disk HTTP cache can otherwise
+// keep serving a previous build's index.html/JS after an "install over"
+// upgrade, silently hiding new frontend code with no visible error.
+app.use(express.static(path.join(__dirname, 'public'), {
+    setHeaders: (res) => res.setHeader('Cache-Control', 'no-store'),
+}));
 
 // Upload directory
 const UPLOAD_DIR = process.env.APP_USER_DATA_PATH

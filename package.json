@@ -2,55 +2,12 @@
   "name": "whatsapp-bot",
   "version": "1.5.2",
   "description": "",
-  "main": "main.js",
+  "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
     "test": "jest",
-    "electron:start": "electron .",
-    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
-    "build:ui": "node -e \"const fs=require('fs');['public/dev','public/types','public/.next'].forEach(p=>fs.rmSync(p,{recursive:true,force:true}))\" && cd frontend && npm install && npm run build",
-    "build:win": "npm run build:ui && electron-builder --win --publish never",
-    "build:mac": "npm run build:ui && electron-builder --mac --publish never"
-  },
-  "build": {
-    "appId": "com.srotas.whatsappbot",
-    "productName": "Srotas WhatsApp Bot",
-    "directories": {
-      "output": "dist"
-    },
-    "files": [
-      "!**/.git",
-      "!**/.wwebjs_auth",
-      "!**/.wwebjs_cache",
-      "!**/uploads",
-      "!**/data",
-      "!dist",
-      "!**/frontend/node_modules",
-      "!**/frontend/.next",
-      "!**/*.log",
-      "!**/tests",
-      "!**/.env*",
-      "!**/MIGRATION_PLAN.md",
-      "**/*"
-    ],
-    "win": {
-      "target": "nsis",
-      "icon": "public/icon.ico"
-    },
-    "nsis": {
-      "guid": "com.srotas.whatsappbot",
-      "createDesktopShortcut": "always",
-      "deleteAppDataOnUninstall": false,
-      "installerSidebar": null
-    },
-    "mac": {
-      "target": [
-        "dmg",
-        "pkg"
-      ],
-      "icon": "public/icon.png"
-    }
+    "build:ui": "node -e \"const fs=require('fs');['public/dev','public/types','public/.next'].forEach(p=>fs.rmSync(p,{recursive:true,force:true}))\" && cd frontend && npm install && npm run build"
   },
   "keywords": [],
   "author": "",
@@ -71,20 +28,12 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",
-    "concurrently": "^9.2.1",
-    "electron": "^40.6.0",
-    "electron-builder": "^26.8.1",
-    "electron-rebuild": "^3.2.9",
     "jest": "^30.2.0",
-    "supertest": "^7.2.2",
-    "wait-on": "^9.0.4"
+    "supertest": "^7.2.2"
   },
   "jest": {
     "testMatch": [
       "**/tests/**/*.test.js"
     ]
-  },
-  "allowScripts": {
-    "electron@40.6.0": true
   }
 }

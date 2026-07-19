@@ -23,7 +23,7 @@ Choose the method that best fits your workflow:
 
 | Method | Best For | Description |
 |---|---|---|
-| [🖥️ Desktop App](#%EF%B8%8F-desktop-app-windows--macos) | End Users & Non-Technical Operators | Standalone Electron installer (.exe / .dmg) |
+| [🖥️ Desktop App](#%EF%B8%8F-desktop-app-windows--macos) | End Users & Non-Technical Operators | Standalone Tauri installer (.exe / .dmg) |
 | [🐳 Docker](#-docker-production) | Server / VPS / Cloud Production | Pre-built container with persistent volume storage |
 | [💻 Local Development](#-local-development-npm) | Developers & Contributors | Node.js native execution |
 
@@ -204,7 +204,7 @@ npm run dev
 
 ```
 srotas-whatsapp-bot/
-├── main.js                         # Electron Desktop Application wrapper
+├── src-tauri/                      # Tauri Desktop Application wrapper (Rust)
 ├── server.js                       # Express API Server & WebSocket Engine
 ├── package.json                    # Project dependencies & build scripts
 ├── .env.example                    # Environment variable template
