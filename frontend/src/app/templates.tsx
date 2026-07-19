@@ -182,6 +182,43 @@ export function Templates() {
         }, 0);
     };
 
+    // Rendered nested inside whichever dialog is currently opening it (New/Edit
+    // Template, or the chat preview) rather than as a JSX sibling. Base UI's
+    // Escape-key dismissal only recognizes "topmost" dialog via React context
+    // nesting — sibling Dialogs each think they're topmost and both close on a
+    // single Escape press, which was wiping the in-progress template draft.
+    const imagePreviewLightbox = !!previewFile && (
+        <Dialog open={!!previewFile} onOpenChange={(open) => { if (!open) setPreviewFile(null); }}>
+            <DialogPortal>
+                <DialogOverlay className="z-[100] bg-black/80 backdrop-blur-sm" />
+                <div
+                    className="fixed top-1/2 left-1/2 z-[101] -translate-x-1/2 -translate-y-1/2 w-[95vw] max-w-5xl overflow-hidden rounded-xl border border-border shadow-2xl animate-in fade-in-0 zoom-in-95 duration-200"
+                    style={{ background: 'var(--card)', backdropFilter: 'blur(12px)' }}
+                >
+                    {/* Header */}
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-secondary/40">
+                        <span className="text-sm text-foreground font-medium truncate max-w-[80%]">{previewFile.name}</span>
+                        <button
+                            type="button"
+                            onClick={() => setPreviewFile(null)}
+                            className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
+                    {/* Image */}
+                    <div className="flex items-center justify-center bg-secondary/20" style={{ minHeight: '50vh', maxHeight: '85vh', overflow: 'hidden' }}>
+                        <img
+                            src={previewFile.url || (previewFile.file ? URL.createObjectURL(previewFile.file) : '')}
+                            alt={previewFile.name}
+                            style={{ maxHeight: '85vh', width: '100%', objectFit: 'contain' }}
+                        />
+                    </div>
+                </div>
+            </DialogPortal>
+        </Dialog>
+    );
+
     return (
         <div className="p-6 xl:p-10 max-w-[1600px] mx-auto space-y-6 w-full">
             <div className="flex justify-between items-center">
@@ -479,40 +516,11 @@ export function Templates() {
                         </div>
                     </div>
                 </DialogContent>
-            </Dialog>
 
-            {/* ─── Image Preview Lightbox ───────────────────────────────── */}
-            {!!previewFile && (
-                <Dialog open={!!previewFile} onOpenChange={(open) => { if (!open) setPreviewFile(null); }}>
-                    <DialogPortal>
-                        <DialogOverlay className="z-[100] bg-black/80 backdrop-blur-sm" />
-                        <div
-                            className="fixed top-1/2 left-1/2 z-[101] -translate-x-1/2 -translate-y-1/2 w-[95vw] max-w-5xl overflow-hidden rounded-xl border border-border shadow-2xl animate-in fade-in-0 zoom-in-95 duration-200"
-                            style={{ background: 'var(--card)', backdropFilter: 'blur(12px)' }}
-                        >
-                            {/* Header */}
-                            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-secondary/40">
-                                <span className="text-sm text-foreground font-medium truncate max-w-[80%]">{previewFile.name}</span>
-                                <button
-                                    type="button"
-                                    onClick={() => setPreviewFile(null)}
-                                    className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-                                >
-                                    <X className="w-4 h-4" />
-                                </button>
-                            </div>
-                            {/* Image */}
-                            <div className="flex items-center justify-center bg-secondary/20" style={{ minHeight: '50vh', maxHeight: '85vh', overflow: 'hidden' }}>
-                                <img
-                                    src={previewFile.url || (previewFile.file ? URL.createObjectURL(previewFile.file) : '')}
-                                    alt={previewFile.name}
-                                    style={{ maxHeight: '85vh', width: '100%', objectFit: 'contain' }}
-                                />
-                            </div>
-                        </div>
-                    </DialogPortal>
-                </Dialog>
-            )}
+                {/* Nested inside this Dialog so Base UI treats it as the
+                    topmost stacked dialog — Escape closes only the lightbox. */}
+                {isAddOpen && imagePreviewLightbox}
+            </Dialog>
 
             {/* ─── Full Template Chat Preview Modal ─────────────────────── */}
             {!!previewTemplate && (
@@ -624,6 +632,10 @@ export function Templates() {
                             </div>
                         </div>
                     </DialogPortal>
+
+                    {/* Nested here too so Escape only closes the lightbox,
+                        not this chat preview, when opened from within it. */}
+                    {imagePreviewLightbox}
                 </Dialog>
             )}
         </div>
